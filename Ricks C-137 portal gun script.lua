@@ -1,4 +1,4 @@
-﻿--[[
+--[[
 
     PORTAL GUN
 
@@ -1883,6 +1883,67 @@ local function createGUI()
 
         createCoordinateHUD(gui)
 
+    -- Save My Coords - sits directly above the position HUD, fills the
+    -- X/Y/Z fields with the player's current (rounded) position so you
+    -- don't have to type numbers in manually.
+
+    local saveCoordsButton = Instance.new("TextButton")
+
+    saveCoordsButton.Name = "SaveMyCoordsButton"
+
+    saveCoordsButton.Size = UDim2.fromOffset(200, 34)
+
+    saveCoordsButton.Position = UDim2.new(1, -225, 1, -217)
+
+    saveCoordsButton.BackgroundColor3 = Color3.fromRGB(20, 45, 28)
+
+    saveCoordsButton.Text = "SAVE MY COORDS"
+
+    saveCoordsButton.TextColor3 = GREEN
+
+    saveCoordsButton.Font = Enum.Font.GothamBold
+
+    saveCoordsButton.TextSize = 13
+
+    saveCoordsButton.AutoButtonColor = false
+
+    saveCoordsButton.Visible = false
+
+    saveCoordsButton.Parent = gui
+
+    local saveCoordsCorner = Instance.new("UICorner")
+
+    saveCoordsCorner.CornerRadius = UDim.new(0, 10)
+
+    saveCoordsCorner.Parent = saveCoordsButton
+
+    local saveCoordsStroke = Instance.new("UIStroke")
+
+    saveCoordsStroke.Color = GREEN
+
+    saveCoordsStroke.Thickness = 1.5
+
+    saveCoordsStroke.Parent = saveCoordsButton
+
+    saveCoordsButton.MouseButton1Click:Connect(function()
+
+        local root = getRoot()
+
+        if not root then
+            return
+        end
+
+        local pos = root.Position
+
+        xBox.Text = tostring(math.floor(pos.X + 0.5))
+        yBox.Text = tostring(math.floor(pos.Y + 0.5))
+        zBox.Text = tostring(math.floor(pos.Z + 0.5))
+
+        updateMode("Coordinates")
+        menu.Visible = true
+
+    end)
+
     local function startHUD()
 
         if coordinateConnection then
@@ -1892,6 +1953,8 @@ local function createGUI()
         end
 
         coordinateFrame.Visible = true
+
+        saveCoordsButton.Visible = true
 
         coordinateConnection =
 
@@ -1927,6 +1990,8 @@ local function createGUI()
 
         coordinateFrame.Visible = false
 
+        saveCoordsButton.Visible = false
+
         if coordinateConnection then
 
             coordinateConnection:Disconnect()
@@ -1953,7 +2018,7 @@ local function createPortalGun(startHUD, stopHUD)
 
     local tool = Instance.new("Tool")
 
-    tool.Name = "Rick C-137 Gun"
+    tool.Name = "Portal Gun"
 
     tool.RequiresHandle = true
 
