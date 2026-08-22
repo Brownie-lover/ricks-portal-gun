@@ -1,0 +1,3992 @@
+--[[
+	WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
+]]
+local Players = game:GetService("Players")
+
+local player = Players.LocalPlayer
+
+-- Создаём GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "CodeVerification"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+-- Окно
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 350, 0, 180)
+frame.Position = UDim2.new(0.5, -175, 0.5, -90)
+frame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+frame.Parent = gui
+
+-- Заголовок
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 45)
+title.BackgroundTransparency = 1
+title.Text = "Enter Code"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.TextSize = 24
+title.Font = Enum.Font.GothamBold
+title.Parent = frame
+
+-- Поле ввода
+local input = Instance.new("TextBox")
+input.Size = UDim2.new(1, -40, 0, 45)
+input.Position = UDim2.new(0, 20, 0, 55)
+input.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+input.PlaceholderText = "Введите код..."
+input.Text = ""
+input.TextColor3 = Color3.new(1, 1, 1)
+input.TextSize = 18
+input.Font = Enum.Font.Gotham
+input.ClearTextOnFocus = false
+input.Parent = frame
+
+-- Кнопка
+local button = Instance.new("TextButton")
+button.Size = UDim2.new(1, -40, 0, 40)
+button.Position = UDim2.new(0, 20, 0, 115)
+button.BackgroundColor3 = Color3.fromRGB(70, 120, 255)
+button.Text = "Verify"
+button.TextColor3 = Color3.new(1, 1, 1)
+button.TextSize = 18
+button.Font = Enum.Font.GothamBold
+button.Parent = frame
+
+-- Проверка
+button.MouseButton1Click:Connect(function()
+	if input.Text == "T12E48X" then
+		gui:Destroy()
+
+		-- =========================================
+		--============================================================
+
+--              RICK & MORTY PORTAL GUN
+
+--                  FULL LOCAL SCRIPT
+
+--
+
+-- Поместить в:
+
+-- StarterPlayer
+
+--   └── StarterPlayerScripts
+
+--       └── LocalScript
+
+--
+
+-- ВСЁ РАБОТАЕТ В ОДНОМ LOCALSCRIPT
+
+--============================================================
+
+local Players = game:GetService("Players")
+
+local TweenService = game:GetService("TweenService")
+
+local RunService = game:GetService("RunService")
+local TeleportService = game:GetService("TeleportService")
+
+local player = Players.LocalPlayer
+
+local backpack = player:WaitForChild("Backpack")
+
+--============================================================
+
+-- НАСТРОЙКИ
+
+--============================================================
+
+-- Размер всей пушки.
+
+-- 1 = исходный размер
+
+-- 0.75 = на 25% меньше
+
+-- 0.65 = текущий уменьшенный размер
+
+-- 0.5 = в 2 раза меньше
+
+local GUN_SCALE = 0.4
+
+local GREEN = Color3.fromRGB(45, 255, 90)
+
+local LIGHT_GREEN = Color3.fromRGB(150, 255, 170)
+
+local BODY_COLOR = Color3.fromRGB(150, 150, 145)
+
+local BODY_DARK = Color3.fromRGB(55, 57, 55)
+
+local PORTAL_LIFETIME = 15
+
+-- Режим телепортации: "Coordinates" или "PlaceId"
+local teleportMode = "Coordinates"
+
+local currentPortal = nil
+
+local portalAnimationConnection = nil
+
+local coordinateConnection = nil
+
+local gunAnimationConnection = nil
+
+--============================================================
+
+-- GUI
+
+--============================================================
+
+local gui = Instance.new("ScreenGui")
+
+gui.Name = "PortalGunGUI"
+
+gui.ResetOnSpawn = false
+
+gui.IgnoreGuiInset = true
+
+gui.Parent = player:WaitForChild("PlayerGui")
+
+--============================================================
+
+-- ГЛАВНОЕ ОКНО
+
+--============================================================
+
+local main = Instance.new("Frame")
+
+main.Name = "PortalMenu"
+
+main.Size =
+
+    UDim2.fromOffset(
+
+        390,
+
+        310
+
+    )
+
+main.Position =
+
+    UDim2.fromScale(
+
+        0.5,
+
+        0.5
+
+    )
+
+main.AnchorPoint =
+
+    Vector2.new(
+
+        0.5,
+
+        0.5
+
+    )
+
+main.BackgroundColor3 =
+
+    Color3.fromRGB(
+
+        12,
+
+        15,
+
+        18
+
+    )
+
+main.BackgroundTransparency = 0.04
+
+main.Visible = false
+
+main.Parent = gui
+
+local mainCorner =
+
+    Instance.new("UICorner")
+
+mainCorner.CornerRadius =
+
+    UDim.new(
+
+        0,
+
+        16
+
+    )
+
+mainCorner.Parent = main
+
+local mainStroke =
+
+    Instance.new("UIStroke")
+
+mainStroke.Color = GREEN
+
+mainStroke.Thickness = 2
+
+mainStroke.Parent = main
+
+--============================================================
+
+-- ЗАГОЛОВОК
+
+--============================================================
+
+local title =
+
+    Instance.new("TextLabel")
+
+title.Size =
+
+    UDim2.new(
+
+        1,
+
+        -60,
+
+        0,
+
+        45
+
+    )
+
+title.Position =
+
+    UDim2.fromOffset(
+
+        15,
+
+        10
+
+    )
+
+title.BackgroundTransparency = 1
+
+title.Text = "🌀 PORTAL GUN"
+
+title.TextColor3 =
+
+    Color3.fromRGB(
+
+        220,
+
+        255,
+
+        230
+
+    )
+
+title.Font =
+
+    Enum.Font.GothamBold
+
+title.TextSize = 25
+
+title.Parent = main
+
+--============================================================
+
+-- ПОДЗАГОЛОВОК
+
+--============================================================
+
+local subtitle =
+
+    Instance.new("TextLabel")
+
+subtitle.Size =
+
+    UDim2.new(
+
+        1,
+
+        -30,
+
+        0,
+
+        25
+
+    )
+
+subtitle.Position =
+
+    UDim2.fromOffset(
+
+        15,
+
+        48
+
+    )
+
+subtitle.BackgroundTransparency = 1
+
+subtitle.Text =
+
+    "Enter destination coordinates"
+
+subtitle.TextColor3 =
+
+    Color3.fromRGB(
+
+        130,
+
+        160,
+
+        140
+
+    )
+
+subtitle.Font =
+
+    Enum.Font.Gotham
+
+subtitle.TextSize = 14
+
+subtitle.Parent = main
+
+--============================================================
+
+-- СОЗДАНИЕ ПОЛЯ
+
+--============================================================
+
+local coordinatesModeButton = Instance.new("TextButton")
+coordinatesModeButton.Name = "CoordinatesMode"
+coordinatesModeButton.Size = UDim2.fromOffset(155, 32)
+coordinatesModeButton.Position = UDim2.fromOffset(30, 72)
+coordinatesModeButton.BackgroundColor3 = Color3.fromRGB(25, 150, 65)
+coordinatesModeButton.Text = "📍 Coordinates"
+coordinatesModeButton.TextColor3 = Color3.fromRGB(235, 255, 240)
+coordinatesModeButton.Font = Enum.Font.GothamBold
+coordinatesModeButton.TextSize = 12
+coordinatesModeButton.AutoButtonColor = false
+coordinatesModeButton.Parent = main
+
+local coordinatesModeCorner = Instance.new("UICorner")
+coordinatesModeCorner.CornerRadius = UDim.new(0, 8)
+coordinatesModeCorner.Parent = coordinatesModeButton
+
+local placeIdModeButton = Instance.new("TextButton")
+placeIdModeButton.Name = "PlaceIdMode"
+placeIdModeButton.Size = UDim2.fromOffset(155, 32)
+placeIdModeButton.Position = UDim2.fromOffset(205, 72)
+placeIdModeButton.BackgroundColor3 = Color3.fromRGB(24, 29, 32)
+placeIdModeButton.Text = "🌍 PLACE ID"
+placeIdModeButton.TextColor3 = Color3.fromRGB(170, 190, 180)
+placeIdModeButton.Font = Enum.Font.GothamBold
+placeIdModeButton.TextSize = 12
+placeIdModeButton.AutoButtonColor = false
+placeIdModeButton.Parent = main
+
+local placeIdModeCorner = Instance.new("UICorner")
+placeIdModeCorner.CornerRadius = UDim.new(0, 8)
+placeIdModeCorner.Parent = placeIdModeButton
+
+local function createField(
+
+    name,
+
+    placeholder,
+
+    position
+
+)
+
+    local box =
+
+        Instance.new("TextBox")
+
+    box.Name = name
+
+    box.Size =
+
+        UDim2.fromOffset(
+
+            105,
+
+            50
+
+        )
+
+    box.Position = position
+
+    box.BackgroundColor3 =
+
+        Color3.fromRGB(
+
+            24,
+
+            29,
+
+            32
+
+        )
+
+    box.TextColor3 =
+
+        Color3.fromRGB(
+
+            235,
+
+            255,
+
+            240
+
+        )
+
+    box.PlaceholderColor3 =
+
+        Color3.fromRGB(
+
+            100,
+
+            120,
+
+            105
+
+        )
+
+    box.PlaceholderText =
+
+        placeholder
+
+    box.Text = ""
+
+    box.Font =
+
+        Enum.Font.GothamMedium
+
+    box.TextSize = 17
+
+    box.ClearTextOnFocus = false
+
+    box.Parent = main
+
+    local corner =
+
+        Instance.new("UICorner")
+
+    corner.CornerRadius =
+
+        UDim.new(
+
+            0,
+
+            10
+
+        )
+
+    corner.Parent = box
+
+    local stroke =
+
+        Instance.new("UIStroke")
+
+    stroke.Color =
+
+        Color3.fromRGB(
+
+            55,
+
+            90,
+
+            65
+
+        )
+
+    stroke.Thickness = 1
+
+    stroke.Parent = box
+
+    return box
+
+end
+
+local xBox =
+
+    createField(
+
+        "X",
+
+        "X",
+
+        UDim2.fromOffset(
+
+            30,
+
+            115
+
+        )
+
+    )
+
+local yBox =
+
+    createField(
+
+        "Y",
+
+        "Y",
+
+        UDim2.fromOffset(
+
+            142,
+
+            115
+
+        )
+
+    )
+
+local zBox =
+
+    createField(
+
+        "Z",
+
+        "Z",
+
+        UDim2.fromOffset(
+
+            254,
+
+            115
+
+        )
+
+    )
+
+local placeIdBox = createField(
+    "PlaceId",
+    "Place ID",
+    UDim2.fromOffset(30, 115)
+)
+
+placeIdBox.Size = UDim2.fromOffset(330, 50)
+placeIdBox.Visible = false
+
+--============================================================
+
+-- КНОПКА
+
+--============================================================
+
+local createButton =
+
+    Instance.new("TextButton")
+
+createButton.Name =
+
+    "CreatePortal"
+
+createButton.Size =
+
+    UDim2.new(
+
+        1,
+
+        -60,
+
+        0,
+
+        55
+
+    )
+
+createButton.Position =
+
+    UDim2.fromOffset(
+
+        30,
+
+        180
+
+    )
+
+createButton.BackgroundColor3 =
+
+    Color3.fromRGB(
+
+        25,
+
+        150,
+
+        65
+
+    )
+
+createButton.Text =
+
+    "OPEN PORTAL"
+
+createButton.TextColor3 =
+
+    Color3.fromRGB(
+
+        235,
+
+        255,
+
+        240
+
+    )
+
+createButton.Font =
+
+    Enum.Font.GothamBold
+
+createButton.TextSize = 17
+
+createButton.AutoButtonColor = false
+
+createButton.Parent = main
+
+local buttonCorner =
+
+    Instance.new("UICorner")
+
+buttonCorner.CornerRadius =
+
+    UDim.new(
+
+        0,
+
+        12
+
+    )
+
+buttonCorner.Parent =
+
+    createButton
+
+local buttonStroke =
+
+    Instance.new("UIStroke")
+
+buttonStroke.Color =
+
+    Color3.fromRGB(
+
+        80,
+
+        255,
+
+        130
+
+    )
+
+buttonStroke.Thickness = 1
+
+buttonStroke.Parent =
+
+    createButton
+
+createButton.MouseEnter:Connect(
+
+    function()
+
+        TweenService:Create(
+
+            createButton,
+
+            TweenInfo.new(0.15),
+
+            {
+
+                BackgroundColor3 =
+
+                    Color3.fromRGB(
+
+                        35,
+
+                        190,
+
+                        80
+
+                    )
+
+            }
+
+        ):Play()
+
+    end
+
+)
+
+createButton.MouseLeave:Connect(
+
+    function()
+
+        TweenService:Create(
+
+            createButton,
+
+            TweenInfo.new(0.15),
+
+            {
+
+                BackgroundColor3 =
+
+                    Color3.fromRGB(
+
+                        25,
+
+                        150,
+
+                        65
+
+                    )
+
+            }
+
+        ):Play()
+
+    end
+
+)
+
+--============================================================
+
+-- КНОПКА ЗАКРЫТИЯ
+
+--============================================================
+
+local closeButton =
+
+    Instance.new("TextButton")
+
+closeButton.Size =
+
+    UDim2.fromOffset(
+
+        32,
+
+        32
+
+    )
+
+closeButton.Position =
+
+    UDim2.new(
+
+        1,
+
+        -43,
+
+        0,
+
+        12
+
+    )
+
+closeButton.BackgroundTransparency = 1
+
+closeButton.Text = "×"
+
+closeButton.TextColor3 =
+
+    Color3.fromRGB(
+
+        170,
+
+        180,
+
+        175
+
+    )
+
+closeButton.Font =
+
+    Enum.Font.GothamBold
+
+closeButton.TextSize = 28
+
+closeButton.Parent = main
+
+closeButton.MouseButton1Click:Connect(
+
+    function()
+
+        main.Visible = false
+
+    end
+
+)
+
+--============================================================
+
+-- STATUS
+
+--============================================================
+
+local status =
+
+    Instance.new("TextLabel")
+
+status.Size =
+
+    UDim2.new(
+
+        1,
+
+        -60,
+
+        0,
+
+        30
+
+    )
+
+status.Position =
+
+    UDim2.fromOffset(
+
+        30,
+
+        245
+
+    )
+
+status.BackgroundTransparency = 1
+
+status.Text =
+
+    "Введите X, Y и Z"
+
+status.TextColor3 =
+
+    Color3.fromRGB(
+
+        110,
+
+        140,
+
+        120
+
+    )
+
+status.Font =
+
+    Enum.Font.Gotham
+
+status.TextSize = 13
+
+status.Parent = main
+
+local function updateTeleportMode(mode)
+    teleportMode = mode
+
+    local coordinates = mode == "Coordinates"
+
+    xBox.Visible = coordinates
+    yBox.Visible = coordinates
+    zBox.Visible = coordinates
+    placeIdBox.Visible = not coordinates
+
+    if coordinates then
+        coordinatesModeButton.BackgroundColor3 = Color3.fromRGB(25, 150, 65)
+        coordinatesModeButton.TextColor3 = Color3.fromRGB(235, 255, 240)
+
+        placeIdModeButton.BackgroundColor3 = Color3.fromRGB(24, 29, 32)
+        placeIdModeButton.TextColor3 = Color3.fromRGB(170, 190, 180)
+
+        subtitle.Text = "Enter Destination Coordinates"
+        status.Text = "Введите X, Y и Z"
+    else
+        coordinatesModeButton.BackgroundColor3 = Color3.fromRGB(24, 29, 32)
+        coordinatesModeButton.TextColor3 = Color3.fromRGB(170, 190, 180)
+
+        placeIdModeButton.BackgroundColor3 = Color3.fromRGB(25, 150, 65)
+        placeIdModeButton.TextColor3 = Color3.fromRGB(235, 255, 240)
+
+        subtitle.Text = "Введите Place ID назначения"
+        status.Text = "Введите Place ID"
+    end
+
+    status.TextColor3 = Color3.fromRGB(110, 140, 120)
+end
+
+coordinatesModeButton.MouseButton1Click:Connect(function()
+    updateTeleportMode("Coordinates")
+end)
+
+placeIdModeButton.MouseButton1Click:Connect(function()
+    updateTeleportMode("PlaceId")
+end)
+
+updateTeleportMode("Coordinates")
+
+--============================================================
+
+-- GUI КООРДИНАТ
+
+--============================================================
+
+local coordinatesFrame =
+
+    Instance.new("Frame")
+
+coordinatesFrame.Name =
+
+    "CurrentCoordinates"
+
+coordinatesFrame.Size =
+
+    UDim2.fromOffset(
+
+        200,
+
+        88
+
+    )
+
+coordinatesFrame.Position =
+
+    UDim2.new(
+
+        1,
+
+        -225,
+
+        1,
+
+        -175
+
+    )
+
+coordinatesFrame.BackgroundColor3 =
+
+    Color3.fromRGB(
+
+        10,
+
+        14,
+
+        12
+
+    )
+
+coordinatesFrame.BackgroundTransparency = 0.12
+
+coordinatesFrame.Visible = false
+
+coordinatesFrame.Parent = gui
+
+local coordinatesCorner =
+
+    Instance.new("UICorner")
+
+coordinatesCorner.CornerRadius =
+
+    UDim.new(
+
+        0,
+
+        12
+
+    )
+
+coordinatesCorner.Parent =
+
+    coordinatesFrame
+
+local coordinatesStroke =
+
+    Instance.new("UIStroke")
+
+coordinatesStroke.Color = GREEN
+
+coordinatesStroke.Thickness = 1.5
+
+coordinatesStroke.Parent =
+
+    coordinatesFrame
+
+local coordinatesTitle =
+
+    Instance.new("TextLabel")
+
+coordinatesTitle.Size =
+
+    UDim2.new(
+
+        1,
+
+        -16,
+
+        0,
+
+        25
+
+    )
+
+coordinatesTitle.Position =
+
+    UDim2.fromOffset(
+
+        8,
+
+        5
+
+    )
+
+coordinatesTitle.BackgroundTransparency = 1
+
+coordinatesTitle.Text =
+
+    "📍 CURRENT POSITION"
+
+coordinatesTitle.TextColor3 = GREEN
+
+coordinatesTitle.Font =
+
+    Enum.Font.GothamBold
+
+coordinatesTitle.TextSize = 12
+
+coordinatesTitle.Parent =
+
+    coordinatesFrame
+
+local coordinatesLabel =
+
+    Instance.new("TextLabel")
+
+coordinatesLabel.Size =
+
+    UDim2.new(
+
+        1,
+
+        -16,
+
+        0,
+
+        52
+
+    )
+
+coordinatesLabel.Position =
+
+    UDim2.fromOffset(
+
+        8,
+
+        30
+
+    )
+
+coordinatesLabel.BackgroundTransparency = 1
+
+coordinatesLabel.Text =
+
+    "X: 0.0\nY: 0.0\nZ: 0.0"
+
+coordinatesLabel.TextColor3 =
+
+    Color3.fromRGB(
+
+        220,
+
+        255,
+
+        225
+
+    )
+
+coordinatesLabel.Font =
+
+    Enum.Font.Code
+
+coordinatesLabel.TextSize = 13
+
+coordinatesLabel.TextXAlignment =
+
+    Enum.TextXAlignment.Left
+
+coordinatesLabel.TextYAlignment =
+
+    Enum.TextYAlignment.Top
+
+coordinatesLabel.Parent =
+
+    coordinatesFrame
+
+--============================================================
+
+-- HUD КООРДИНАТ
+
+--============================================================
+
+local function startCoordinateHUD()
+
+    if coordinateConnection then
+
+        coordinateConnection:Disconnect()
+
+    end
+
+    coordinatesFrame.Visible = true
+
+    coordinateConnection =
+
+        RunService.RenderStepped:Connect(
+
+            function()
+
+                local character =
+
+                    player.Character
+
+                if not character then
+
+                    return
+
+                end
+
+                local root =
+
+                    character:FindFirstChild(
+
+                        "HumanoidRootPart"
+
+                    )
+
+                if not root then
+
+                    return
+
+                end
+
+                local position =
+
+                    root.Position
+
+                coordinatesLabel.Text =
+
+                    string.format(
+
+                        "X: %.1f\nY: %.1f\nZ: %.1f",
+
+                        position.X,
+
+                        position.Y,
+
+                        position.Z
+
+                    )
+
+            end
+
+        )
+
+end
+
+local function stopCoordinateHUD()
+
+    coordinatesFrame.Visible = false
+
+    if coordinateConnection then
+
+        coordinateConnection:Disconnect()
+
+        coordinateConnection = nil
+
+    end
+
+end
+
+--============================================================
+
+-- УДАЛЕНИЕ ПОРТАЛА
+
+--============================================================
+
+local function removePortal()
+
+    if portalAnimationConnection then
+
+        portalAnimationConnection:Disconnect()
+
+        portalAnimationConnection = nil
+
+    end
+
+    if currentPortal then
+
+        currentPortal:Destroy()
+
+        currentPortal = nil
+
+    end
+
+end
+
+--============================================================
+
+-- СОЗДАНИЕ PART
+
+--============================================================
+
+local function makePart(
+
+    parent,
+
+    name,
+
+    size,
+
+    color,
+
+    material,
+
+    cframe
+
+)
+
+    local part =
+
+        Instance.new("Part")
+
+    part.Name = name
+
+    part.Size = size
+
+    part.Color = color
+
+    part.Material = material
+
+    part.CFrame = cframe
+
+    part.CanCollide = false
+
+    part.CanTouch = false
+
+    part.CanQuery = false
+
+    part.Massless = true
+
+    part.CastShadow = false
+
+    part.Parent = parent
+
+    return part
+
+end
+
+--============================================================
+
+-- WELD
+
+--============================================================
+
+local function weldPart(
+
+    part,
+
+    handle
+
+)
+
+    local weld =
+
+        Instance.new(
+
+            "WeldConstraint"
+
+        )
+
+    weld.Part0 = handle
+
+    weld.Part1 = part
+
+    weld.Parent = part
+
+end
+
+--============================================================
+
+-- СОЗДАНИЕ ПУШКИ
+
+--============================================================
+
+local function createPortalGun()
+
+    local tool =
+
+        Instance.new("Tool")
+
+    tool.Name =
+
+        "Portal Gun"
+
+    tool.RequiresHandle = true
+
+    tool.CanBeDropped = false
+
+    tool.ToolTip =
+
+        "LMB — OPEN PORTAL"
+
+    --========================================================
+
+    -- HANDLE
+
+    --
+
+    -- Это настоящая рукоятка.
+
+    --========================================================
+
+    local handle =
+
+        Instance.new("Part")
+
+    handle.Name = "Handle"
+
+    handle.Size =
+
+        Vector3.new(
+
+            0.72,
+
+            2.35,
+
+            0.72
+
+        )
+
+    handle.Color =
+
+        Color3.fromRGB(
+
+            55,
+
+            57,
+
+            55
+
+        )
+
+    handle.Material =
+
+        Enum.Material.SmoothPlastic
+
+    handle.CanCollide = false
+
+    handle.CanTouch = false
+
+    handle.CanQuery = false
+
+    handle.Massless = true
+
+    handle.CastShadow = false
+
+    handle.Parent = tool
+
+    --========================================================
+
+    -- ПОЛОЖЕНИЕ В РУКЕ
+
+    --========================================================
+
+    tool.Grip =
+
+        CFrame.new(
+
+            0,
+
+            -0.05,
+
+            -0.15
+
+        )
+
+        *
+
+        CFrame.Angles(
+
+            math.rad(90),
+
+            190,
+
+            math.rad(-90)
+
+        )
+
+    --========================================================
+
+    -- ОСНОВНОЙ КОРПУС
+
+    --========================================================
+
+    local body =
+
+        makePart(
+
+            tool,
+
+            "MainBody",
+
+            Vector3.new(
+
+                3.6,
+
+                0.75,
+
+                2.1
+
+            ),
+
+            BODY_COLOR,
+
+            Enum.Material.SmoothPlastic,
+
+            handle.CFrame
+
+                * CFrame.new(
+
+                    -1.55,
+
+                    1.40,
+
+                    0
+
+                )
+
+        )
+
+    weldPart(
+
+        body,
+
+        handle
+
+    )
+
+    --========================================================
+
+    -- НИЖНЯЯ ЧАСТЬ
+
+    --========================================================
+
+    local bottom =
+
+        makePart(
+
+            tool,
+
+            "BottomBody",
+
+            Vector3.new(
+
+                3.25,
+
+                0.18,
+
+                1.8
+
+            ),
+
+            Color3.fromRGB(
+
+                90,
+
+                92,
+
+                90
+
+            ),
+
+            Enum.Material.SmoothPlastic,
+
+            handle.CFrame
+
+                * CFrame.new(
+
+                    -1.55,
+
+                    0.97,
+
+                    0
+
+                )
+
+        )
+
+    weldPart(
+
+        bottom,
+
+        handle
+
+    )
+
+    --========================================================
+
+    -- ПЕРЕДНЯЯ ПАНЕЛЬ
+
+    --========================================================
+
+    local frontPanel =
+
+        makePart(
+
+            tool,
+
+            "FrontPanel",
+
+            Vector3.new(
+
+                0.15,
+
+                0.62,
+
+                1.75
+
+            ),
+
+            Color3.fromRGB(
+
+                65,
+
+                67,
+
+                65
+
+            ),
+
+            Enum.Material.SmoothPlastic,
+
+            handle.CFrame
+
+                * CFrame.new(
+
+                    -3.37,
+
+                    1.40,
+
+                    0
+
+                )
+
+        )
+
+    weldPart(
+
+        frontPanel,
+
+        handle
+
+    )
+
+    --========================================================
+
+    -- ТРИ ЗЕЛЁНЫХ ИЗЛУЧАТЕЛЯ
+
+    --========================================================
+
+    for i = -1, 1 do
+
+        local emitter =
+
+            Instance.new("Part")
+
+        emitter.Name =
+
+            "GreenEmitter"
+
+        emitter.Shape =
+
+            Enum.PartType.Cylinder
+
+        emitter.Size =
+
+            Vector3.new(
+
+                0.16,
+
+                0.43,
+
+                0.43
+
+            )
+
+        emitter.Color = GREEN
+
+        emitter.Material =
+
+            Enum.Material.Neon
+
+        emitter.CanCollide = false
+
+        emitter.CanTouch = false
+
+        emitter.CanQuery = false
+
+        emitter.Massless = true
+
+        emitter.CFrame =
+
+            handle.CFrame
+
+            * CFrame.new(
+
+                -3.46,
+
+                1.40,
+
+                i * 0.55
+
+            )
+
+            *
+
+            CFrame.Angles(
+
+                0,
+
+                math.rad(90),
+
+                0
+
+            )
+
+        emitter.Parent = tool
+
+        weldPart(
+
+            emitter,
+
+            handle
+
+        )
+
+        local light =
+
+            Instance.new(
+
+                "PointLight"
+
+            )
+
+        light.Color = GREEN
+
+        light.Brightness = 1.5
+
+        light.Range = 4
+
+        light.Parent = emitter
+
+    end
+
+    --========================================================
+
+    -- ВЕРХНЯЯ ПЛАСТИНА
+
+    --========================================================
+
+    local topPlate =
+
+        makePart(
+
+            tool,
+
+            "TopPlate",
+
+            Vector3.new(
+
+                2.9,
+
+                0.12,
+
+                1.75
+
+            ),
+
+            Color3.fromRGB(
+
+                170,
+
+                170,
+
+                165
+
+            ),
+
+            Enum.Material.SmoothPlastic,
+
+            handle.CFrame
+
+                * CFrame.new(
+
+                    -1.40,
+
+                    1.83,
+
+                    0
+
+                )
+
+        )
+
+    weldPart(
+
+        topPlate,
+
+        handle
+
+    )
+
+    --========================================================
+
+    -- КРАСНАЯ ПАНЕЛЬ
+
+    --========================================================
+
+    local redPanel =
+
+        makePart(
+
+            tool,
+
+            "RedPanel",
+
+            Vector3.new(
+
+                0.9,
+
+                0.08,
+
+                0.62
+
+            ),
+
+            Color3.fromRGB(
+
+                210,
+
+                45,
+
+                45
+
+            ),
+
+            Enum.Material.Neon,
+
+            handle.CFrame
+
+                * CFrame.new(
+
+                    -0.65,
+
+                    1.93,
+
+                    0
+
+                )
+
+        )
+
+    weldPart(
+
+        redPanel,
+
+        handle
+
+    )
+
+    local redLight =
+
+        Instance.new(
+
+            "PointLight"
+
+        )
+
+    redLight.Color =
+
+        Color3.fromRGB(
+
+            255,
+
+            40,
+
+            40
+
+        )
+
+    redLight.Brightness = 0.5
+
+    redLight.Range = 3
+
+    redLight.Parent = redPanel
+
+    --========================================================
+
+    -- ОСНОВАНИЕ КОЛБЫ
+
+    --========================================================
+
+    local chamberBase =
+
+        Instance.new("Part")
+
+    chamberBase.Name =
+
+        "ChamberBase"
+
+    chamberBase.Shape =
+
+        Enum.PartType.Cylinder
+
+    chamberBase.Size =
+
+        Vector3.new(
+
+            0.35,
+
+            1.05,
+
+            1.05
+
+        )
+
+    chamberBase.Color =
+
+        Color3.fromRGB(
+
+            190,
+
+            190,
+
+            185
+
+        )
+
+    chamberBase.Material =
+
+        Enum.Material.SmoothPlastic
+
+    chamberBase.CanCollide = false
+
+    chamberBase.CanTouch = false
+
+    chamberBase.CanQuery = false
+
+    chamberBase.Massless = true
+
+    chamberBase.CFrame =
+
+        handle.CFrame
+
+        * CFrame.new(
+
+            -2.20,
+
+            2.20,
+
+            0
+
+        )
+
+        *
+
+        CFrame.Angles(
+
+            0,
+
+            0,
+
+            math.rad(90)
+
+        )
+
+    chamberBase.Parent = tool
+
+    weldPart(
+
+        chamberBase,
+
+        handle
+
+    )
+
+    --========================================================
+
+    -- СТЕКЛЯННАЯ КОЛБА
+
+    --========================================================
+
+    local glass =
+
+        Instance.new("Part")
+
+    glass.Name =
+
+        "EnergyGlass"
+
+    glass.Shape =
+
+        Enum.PartType.Cylinder
+
+    glass.Size =
+
+        Vector3.new(
+
+            1.75,
+
+            1.35,
+
+            1.35
+
+        )
+
+    glass.Color =
+
+        Color3.fromRGB(
+
+            170,
+
+            255,
+
+            190
+
+        )
+
+    glass.Material =
+
+        Enum.Material.Glass
+
+    glass.Transparency = 0.48
+
+    glass.Reflectance = 0.08
+
+    glass.CanCollide = false
+
+    glass.CanTouch = false
+
+    glass.CanQuery = false
+
+    glass.Massless = true
+
+    glass.CFrame =
+
+        handle.CFrame
+
+        * CFrame.new(
+
+            -2.20,
+
+            2.95,
+
+            0
+
+        )
+
+        *
+
+        CFrame.Angles(
+
+            0,
+
+            0,
+
+            math.rad(90)
+
+        )
+
+    glass.Parent = tool
+
+    weldPart(
+
+        glass,
+
+        handle
+
+    )
+
+    --========================================================
+
+    -- ВЕРХ КОЛБЫ
+
+    --========================================================
+
+    local glassTop =
+
+        Instance.new("Part")
+
+    glassTop.Name =
+
+        "GlassTop"
+
+    glassTop.Shape =
+
+        Enum.PartType.Cylinder
+
+    glassTop.Size =
+
+        Vector3.new(
+
+            0.22,
+
+            1.35,
+
+            1.35
+
+        )
+
+    glassTop.Color =
+
+        Color3.fromRGB(
+
+            180,
+
+            180,
+
+            175
+
+        )
+
+    glassTop.Material =
+
+        Enum.Material.SmoothPlastic
+
+    glassTop.CanCollide = false
+
+    glassTop.CanTouch = false
+
+    glassTop.CanQuery = false
+
+    glassTop.Massless = true
+
+    glassTop.CFrame =
+
+        handle.CFrame
+
+        * CFrame.new(
+
+            -2.20,
+
+            3.82,
+
+            0
+
+        )
+
+        *
+
+        CFrame.Angles(
+
+            0,
+
+            0,
+
+            math.rad(90)
+
+        )
+
+    glassTop.Parent = tool
+
+    weldPart(
+
+        glassTop,
+
+        handle
+
+    )
+
+    --========================================================
+
+    -- ЗЕЛЁНОЕ ЯДРО
+
+    --========================================================
+
+    local core =
+
+        Instance.new("Part")
+
+    core.Name =
+
+        "PortalCore"
+
+    core.Shape =
+
+        Enum.PartType.Ball
+
+    core.Size =
+
+        Vector3.new(
+
+            0.65,
+
+            0.85,
+
+            0.65
+
+        )
+
+    core.Color = GREEN
+
+    core.Material =
+
+        Enum.Material.Neon
+
+    core.Transparency = 0.08
+
+    core.CanCollide = false
+
+    core.CanTouch = false
+
+    core.CanQuery = false
+
+    core.Massless = true
+
+    core.CFrame =
+
+        handle.CFrame
+
+        * CFrame.new(
+
+            -2.20,
+
+            2.97,
+
+            0
+
+        )
+
+    core.Parent = tool
+
+    weldPart(
+
+        core,
+
+        handle
+
+    )
+
+    local coreLight =
+
+        Instance.new(
+
+            "PointLight"
+
+        )
+
+    coreLight.Color = GREEN
+
+    coreLight.Brightness = 3
+
+    coreLight.Range = 7
+
+    coreLight.Parent = core
+
+    --========================================================
+
+    -- ЧАСТИЦЫ ЯДРА
+
+    --========================================================
+
+    local coreAttachment =
+
+        Instance.new(
+
+            "Attachment"
+
+        )
+
+    coreAttachment.Parent = core
+
+    local coreParticles =
+
+        Instance.new(
+
+            "ParticleEmitter"
+
+        )
+
+    coreParticles.Color =
+
+        ColorSequence.new(
+
+            GREEN
+
+        )
+
+    coreParticles.LightEmission = 1
+
+    coreParticles.LightInfluence = 0
+
+    coreParticles.Rate = 18
+
+    coreParticles.Lifetime =
+
+        NumberRange.new(
+
+            0.3,
+
+            0.7
+
+        )
+
+    coreParticles.Speed =
+
+        NumberRange.new(
+
+            0.2,
+
+            0.8
+
+        )
+
+    coreParticles.SpreadAngle =
+
+        Vector2.new(
+
+            180,
+
+            180
+
+        )
+
+    coreParticles.Size =
+
+        NumberSequence.new({
+
+            NumberSequenceKeypoint.new(
+
+                0,
+
+                0.09
+
+            ),
+
+            NumberSequenceKeypoint.new(
+
+                1,
+
+                0
+
+            )
+
+        })
+
+    coreParticles.Parent =
+
+        coreAttachment
+
+    --========================================================
+
+    -- НИЖНЯЯ ЧАСТЬ РУКОЯТКИ
+
+    --========================================================
+
+    local gripBottom =
+
+        makePart(
+
+            tool,
+
+            "GripBottom",
+
+            Vector3.new(
+
+                0.82,
+
+                0.65,
+
+                0.82
+
+            ),
+
+            Color3.fromRGB(
+
+                48,
+
+                50,
+
+                48
+
+            ),
+
+            Enum.Material.SmoothPlastic,
+
+            handle.CFrame
+
+                * CFrame.new(
+
+                    0.35,
+
+                    -1.0,
+
+                    0
+
+                )
+
+                *
+
+                CFrame.Angles(
+
+                    0,
+
+                    0,
+
+                    math.rad(-18)
+
+                )
+
+        )
+
+    weldPart(
+
+        gripBottom,
+
+        handle
+
+    )
+
+    --========================================================
+
+    -- ВЕРХ РУКОЯТКИ
+
+    --========================================================
+
+    local gripTop =
+
+        makePart(
+
+            tool,
+
+            "GripTop",
+
+            Vector3.new(
+
+                0.85,
+
+                0.75,
+
+                0.85
+
+            ),
+
+            BODY_DARK,
+
+            Enum.Material.SmoothPlastic,
+
+            handle.CFrame
+
+                * CFrame.new(
+
+                    -0.4,
+
+                    0.8,
+
+                    0
+
+                )
+
+                *
+
+                CFrame.Angles(
+
+                    0,
+
+                    0,
+
+                    math.rad(-18)
+
+                )
+
+        )
+
+    weldPart(
+
+        gripTop,
+
+        handle
+
+    )
+
+    --========================================================
+
+    -- ЧЁРНАЯ ВСТАВКА
+
+    --========================================================
+
+    local gripInsert =
+
+        makePart(
+
+            tool,
+
+            "GripInsert",
+
+            Vector3.new(
+
+                0.5,
+
+                1.7,
+
+                0.75
+
+            ),
+
+            Color3.fromRGB(
+
+                35,
+
+                37,
+
+                35
+
+            ),
+
+            Enum.Material.SmoothPlastic,
+
+            handle.CFrame
+
+                * CFrame.new(
+
+                    0.02,
+
+                    0,
+
+                    -0.38
+
+                )
+
+                *
+
+                CFrame.Angles(
+
+                    0,
+
+                    0,
+
+                    math.rad(-18)
+
+                )
+
+        )
+
+    weldPart(
+
+        gripInsert,
+
+        handle
+
+    )
+
+    --========================================================
+
+    -- ЗЕЛЁНАЯ ПОЛОСА РУКОЯТКИ
+
+    --========================================================
+
+    local gripLight =
+
+        makePart(
+
+            tool,
+
+            "GripLight",
+
+            Vector3.new(
+
+                0.08,
+
+                1.1,
+
+                0.2
+
+            ),
+
+            GREEN,
+
+            Enum.Material.Neon,
+
+            handle.CFrame
+
+                * CFrame.new(
+
+                    -0.35,
+
+                    0.1,
+
+                    -0.43
+
+                )
+
+                *
+
+                CFrame.Angles(
+
+                    0,
+
+                    0,
+
+                    math.rad(-18)
+
+                )
+
+        )
+
+    weldPart(
+
+        gripLight,
+
+        handle
+
+    )
+
+    --========================================================
+
+    -- ЧАСТИЦЫ ПУШКИ
+
+    --========================================================
+
+    local gunAttachment =
+
+        Instance.new(
+
+            "Attachment"
+
+        )
+
+    gunAttachment.Position =
+
+        Vector3.new(
+
+            -2.2,
+
+            3.8,
+
+            0
+
+        )
+
+    gunAttachment.Parent =
+
+        handle
+
+    local gunParticles =
+
+        Instance.new(
+
+            "ParticleEmitter"
+
+        )
+
+    gunParticles.Color =
+
+        ColorSequence.new(
+
+            GREEN
+
+        )
+
+    gunParticles.LightEmission = 1
+
+    gunParticles.LightInfluence = 0
+
+    gunParticles.Rate = 8
+
+    gunParticles.Lifetime =
+
+        NumberRange.new(
+
+            0.25,
+
+            0.6
+
+        )
+
+    gunParticles.Speed =
+
+        NumberRange.new(
+
+            0.1,
+
+            0.6
+
+        )
+
+    gunParticles.SpreadAngle =
+
+        Vector2.new(
+
+            180,
+
+            180
+
+        )
+
+    gunParticles.Size =
+
+        NumberSequence.new({
+
+            NumberSequenceKeypoint.new(
+
+                0,
+
+                0.1
+
+            ),
+
+            NumberSequenceKeypoint.new(
+
+                1,
+
+                0
+
+            )
+
+        })
+
+    gunParticles.Parent =
+
+        gunAttachment
+
+    --========================================================
+
+    -- УМЕНЬШЕНИЕ ВСЕЙ МОДЕЛИ
+
+    --
+
+    -- ВАЖНО:
+
+    -- здесь не меняется сама конструкция пушки.
+
+    -- Мы только пропорционально масштабируем:
+
+    --
+
+    -- 1. Handle
+
+    -- 2. размеры всех деталей
+
+    -- 3. расстояние деталей от Handle
+
+    --
+
+    -- Поэтому модель остаётся точно такой же,
+
+    -- только становится меньше.
+
+    --========================================================
+
+    if GUN_SCALE ~= 1 then
+
+        local originalHandleCFrame =
+
+            handle.CFrame
+
+        local parts = {}
+
+        for _, object in
+
+            ipairs(
+
+                tool:GetChildren()
+
+            ) do
+
+            if object:IsA(
+
+                "BasePart"
+
+            ) then
+
+                table.insert(
+
+                    parts,
+
+                    object
+
+                )
+
+            end
+
+        end
+
+        for _, part in
+
+            ipairs(
+
+                parts
+
+            ) do
+
+            local relativeCFrame =
+
+                originalHandleCFrame:ToObjectSpace(
+
+                    part.CFrame
+
+                )
+
+            local relativePosition =
+
+                relativeCFrame.Position
+
+            local rotation =
+
+                relativeCFrame
+
+                    - relativePosition
+
+            part.Size =
+
+                part.Size
+
+                * GUN_SCALE
+
+            part.CFrame =
+
+                originalHandleCFrame
+
+                *
+
+                CFrame.new(
+
+                    relativePosition
+
+                        * GUN_SCALE
+
+                )
+
+                *
+
+                rotation
+
+        end
+
+        -- Масштабируем положение Attachment
+
+        for _, object in
+
+            ipairs(
+
+                tool:GetDescendants()
+
+            ) do
+
+            if object:IsA(
+
+                "Attachment"
+
+            ) then
+
+                if object.Parent:IsA(
+
+                    "BasePart"
+
+                ) then
+
+                    object.Position =
+
+                        object.Position
+
+                        * GUN_SCALE
+
+                end
+
+            end
+
+        end
+
+    end
+
+    --========================================================
+
+    -- АНИМАЦИЯ ЯДРА
+
+    --========================================================
+
+    tool.Equipped:Connect(
+
+        function()
+
+            startCoordinateHUD()
+
+            if gunAnimationConnection then
+
+                gunAnimationConnection:Disconnect()
+
+            end
+
+            gunAnimationConnection =
+
+                RunService.RenderStepped:Connect(
+
+                    function()
+
+                        if not core.Parent then
+
+                            return
+
+                        end
+
+                        local pulse =
+
+                            1
+
+                            +
+
+                            math.sin(
+
+                                os.clock() * 5
+
+                            ) * 0.12
+
+                        local baseSize =
+
+                            Vector3.new(
+
+                                0.65,
+
+                                0.85,
+
+                                0.65
+
+                            )
+
+                            * GUN_SCALE
+
+                        core.Size =
+
+                            baseSize
+
+                            * pulse
+
+                        coreLight.Brightness =
+
+                            3
+
+                            +
+
+                            math.sin(
+
+                                os.clock() * 5
+
+                            )
+
+                    end
+
+                )
+
+        end
+
+    )
+
+    --========================================================
+
+    -- УБИРАЕМ HUD
+
+    --========================================================
+
+    tool.Unequipped:Connect(
+
+        function()
+
+            stopCoordinateHUD()
+
+            if gunAnimationConnection then
+
+                gunAnimationConnection:Disconnect()
+
+                gunAnimationConnection = nil
+
+            end
+
+            main.Visible = false
+
+        end
+
+    )
+
+    --========================================================
+
+    -- ЛКМ
+
+    --========================================================
+
+    tool.Activated:Connect(
+
+        function()
+
+            main.Visible =
+
+                not main.Visible
+
+            if main.Visible then
+
+                if teleportMode == "Coordinates" then
+                    status.Text = "Enter coordinates X, Y and Z"
+                else
+                    status.Text = "Введите Place ID"
+                end
+
+                status.TextColor3 =
+
+                    Color3.fromRGB(
+
+                        110,
+
+                        140,
+
+                        120
+
+                    )
+
+            end
+
+        end
+
+    )
+
+    tool.Parent = backpack
+
+    return tool
+
+end
+
+--============================================================
+
+-- СОЗДАНИЕ ПОРТАЛА
+
+--============================================================
+
+local function createPortal(
+
+    targetPosition,
+
+    targetPlaceId
+
+)
+
+    removePortal()
+
+    local character =
+
+        player.Character
+
+    if not character then
+
+        return
+
+    end
+
+    local root =
+
+        character:FindFirstChild(
+
+            "HumanoidRootPart"
+
+        )
+
+    if not root then
+
+        return
+
+    end
+
+    --========================================================
+
+    -- ПОРТАЛ ПЕРЕД ИГРОКОМ
+
+    --========================================================
+
+    local forward =
+
+        root.CFrame.LookVector
+
+    local portalPosition =
+
+        root.Position
+
+        +
+
+        forward * 7
+
+    --========================================================
+
+    -- MODEL
+
+    --========================================================
+
+    local model =
+
+        Instance.new("Model")
+
+    model.Name =
+
+        "RickMortyGreenPortal"
+
+    model.Parent = workspace
+
+    currentPortal = model
+
+    --========================================================
+
+    -- ОСНОВА ПОРТАЛА
+
+    --========================================================
+
+    local portal =
+
+        Instance.new("Part")
+
+    portal.Name =
+
+        "Portal"
+
+    portal.Size =
+
+        Vector3.new(
+
+            7,
+
+            10,
+
+            0.4
+
+        )
+
+    portal.CFrame =
+
+        CFrame.lookAt(
+
+            portalPosition,
+
+            portalPosition + forward
+
+        )
+
+    portal.Color = GREEN
+
+    portal.Material =
+
+        Enum.Material.Neon
+
+    portal.Transparency = 0.25
+
+    portal.Anchored = true
+
+    portal.CanCollide = false
+
+    portal.CanTouch = true
+
+    portal.CanQuery = false
+
+    portal.Parent = model
+
+    local portalMesh =
+
+        Instance.new(
+
+            "SpecialMesh"
+
+        )
+
+    portalMesh.MeshType =
+
+        Enum.MeshType.Sphere
+
+    portalMesh.Scale =
+
+        Vector3.new(
+
+            0.55,
+
+            1,
+
+            0.07
+
+        )
+
+    portalMesh.Parent = portal
+
+    --========================================================
+
+    -- ЦЕНТР ПОРТАЛА
+
+    --========================================================
+
+    local inner =
+
+        Instance.new("Part")
+
+    inner.Name =
+
+        "PortalCore"
+
+    inner.Size =
+
+        Vector3.new(
+
+            6.2,
+
+            9.2,
+
+            0.15
+
+        )
+
+    inner.CFrame =
+
+        portal.CFrame
+
+        *
+
+        CFrame.new(
+
+            0,
+
+            0,
+
+            -0.12
+
+        )
+
+    inner.Color =
+
+        LIGHT_GREEN
+
+    inner.Material =
+
+        Enum.Material.Neon
+
+    inner.Transparency = 0.35
+
+    inner.Anchored = true
+
+    inner.CanCollide = false
+
+    inner.CanTouch = false
+
+    inner.CanQuery = false
+
+    inner.Parent = model
+
+    local innerMesh =
+
+        Instance.new(
+
+            "SpecialMesh"
+
+        )
+
+    innerMesh.MeshType =
+
+        Enum.MeshType.Sphere
+
+    innerMesh.Scale =
+
+        Vector3.new(
+
+            0.55,
+
+            1,
+
+            0.05
+
+        )
+
+    innerMesh.Parent = inner
+
+    --========================================================
+
+    -- СВЕТ
+
+    --========================================================
+
+    local light =
+
+        Instance.new(
+
+            "PointLight"
+
+        )
+
+    light.Color = GREEN
+
+    light.Brightness = 8
+
+    light.Range = 18
+
+    light.Parent = portal
+
+    --========================================================
+
+    -- ЧАСТИЦЫ
+
+    --========================================================
+
+    local attachment =
+
+        Instance.new(
+
+            "Attachment"
+
+        )
+
+    attachment.Parent = portal
+
+    local particles =
+
+        Instance.new(
+
+            "ParticleEmitter"
+
+        )
+
+    particles.Color =
+
+        ColorSequence.new({
+
+            ColorSequenceKeypoint.new(
+
+                0,
+
+                Color3.fromRGB(
+
+                    0,
+
+                    255,
+
+                    70
+
+                )
+
+            ),
+
+            ColorSequenceKeypoint.new(
+
+                0.5,
+
+                Color3.fromRGB(
+
+                    100,
+
+                    255,
+
+                    140
+
+                )
+
+            ),
+
+            ColorSequenceKeypoint.new(
+
+                1,
+
+                Color3.fromRGB(
+
+                    0,
+
+                    180,
+
+                    50
+
+                )
+
+            )
+
+        })
+
+    particles.LightEmission = 1
+
+    particles.LightInfluence = 0
+
+    particles.Rate = 120
+
+    particles.Lifetime =
+
+        NumberRange.new(
+
+            0.4,
+
+            1
+
+        )
+
+    particles.Speed =
+
+        NumberRange.new(
+
+            1,
+
+            4
+
+        )
+
+    particles.SpreadAngle =
+
+        Vector2.new(
+
+            180,
+
+            180
+
+        )
+
+    particles.Rotation =
+
+        NumberRange.new(
+
+            0,
+
+            360
+
+        )
+
+    particles.RotSpeed =
+
+        NumberRange.new(
+
+            -250,
+
+            250
+
+        )
+
+    particles.Size =
+
+        NumberSequence.new({
+
+            NumberSequenceKeypoint.new(
+
+                0,
+
+                0.2
+
+            ),
+
+            NumberSequenceKeypoint.new(
+
+                0.5,
+
+                0.08
+
+            ),
+
+            NumberSequenceKeypoint.new(
+
+                1,
+
+                0
+
+            )
+
+        })
+
+    particles.Parent = attachment
+
+    --========================================================
+
+    -- ЭНЕРГЕТИЧЕСКИЕ КОЛЬЦА
+
+    --========================================================
+
+    for i = 1, 4 do
+
+        local ring =
+
+            Instance.new("Part")
+
+        ring.Name =
+
+            "EnergyRing"
+
+        ring.Shape =
+
+            Enum.PartType.Cylinder
+
+        ring.Size =
+
+            Vector3.new(
+
+                0.08,
+
+                6 + i * 0.55,
+
+                6 + i * 0.55
+
+            )
+
+        ring.CFrame =
+
+            portal.CFrame
+
+            *
+
+            CFrame.Angles(
+
+                math.rad(90),
+
+                0,
+
+                math.rad(
+
+                    i * 45
+
+                )
+
+            )
+
+        ring.Color = GREEN
+
+        ring.Material =
+
+            Enum.Material.Neon
+
+        ring.Transparency = 0.3
+
+        ring.Anchored = true
+
+        ring.CanCollide = false
+
+        ring.CanTouch = false
+
+        ring.CanQuery = false
+
+        ring.Parent = model
+
+    end
+
+    --========================================================
+
+    -- НАДПИСЬ
+
+    --========================================================
+
+    local billboard =
+
+        Instance.new(
+
+            "BillboardGui"
+
+        )
+
+    billboard.Size =
+
+        UDim2.fromOffset(
+
+            250,
+
+            50
+
+        )
+
+    billboard.StudsOffset =
+
+        Vector3.new(
+
+            0,
+
+            6,
+
+            0
+
+        )
+
+    billboard.AlwaysOnTop = true
+
+    billboard.Parent = portal
+
+    local label =
+
+        Instance.new(
+
+            "TextLabel"
+
+        )
+
+    label.Size =
+
+        UDim2.fromScale(
+
+            1,
+
+            1
+
+        )
+
+    label.BackgroundTransparency = 1
+
+    label.Text = "PORTAL"
+
+    label.TextColor3 = GREEN
+
+    label.TextStrokeTransparency = 0.3
+
+    label.Font =
+
+        Enum.Font.GothamBold
+
+    label.TextSize = 20
+
+    label.Parent = billboard
+
+    --========================================================
+
+    -- АНИМАЦИЯ
+
+    --========================================================
+
+    local startTime =
+
+        os.clock()
+
+    portalAnimationConnection =
+
+        RunService.RenderStepped:Connect(
+
+            function()
+
+                if not model.Parent then
+
+                    if portalAnimationConnection then
+
+                        portalAnimationConnection:Disconnect()
+
+                        portalAnimationConnection = nil
+
+                    end
+
+                    return
+
+                end
+
+                local elapsed =
+
+                    os.clock()
+
+                    -
+
+                    startTime
+
+                local pulse =
+
+                    1
+
+                    +
+
+                    math.sin(
+
+                        elapsed * 5
+
+                    )
+
+                    * 0.06
+
+                portal.Size =
+
+                    Vector3.new(
+
+                        7 * pulse,
+
+                        10 * pulse,
+
+                        0.4
+
+                    )
+
+                for i, object in
+
+                    ipairs(
+
+                        model:GetChildren()
+
+                    ) do
+
+                    if object.Name ==
+
+                        "EnergyRing" then
+
+                        object.CFrame =
+
+                            portal.CFrame
+
+                            *
+
+                            CFrame.Angles(
+
+                                math.rad(90),
+
+                                elapsed *
+
+                                    (i * 0.8),
+
+                                math.rad(
+
+                                    i * 45
+
+                                )
+
+                            )
+
+                    end
+
+                end
+
+            end
+
+        )
+
+    --========================================================
+
+    -- ТЕЛЕПОРТАЦИЯ
+
+    --========================================================
+
+    local teleportDebounce = false
+
+    portal.Touched:Connect(
+
+        function(hit)
+
+            if teleportDebounce then
+
+                return
+
+            end
+
+            local character =
+
+                player.Character
+
+            if not character then
+
+                return
+
+            end
+
+            if not hit:IsDescendantOf(
+
+                character
+
+            ) then
+
+                return
+
+            end
+
+            local humanoid =
+
+                character:FindFirstChildOfClass(
+
+                    "Humanoid"
+
+                )
+
+            local rootPart =
+
+                character:FindFirstChild(
+
+                    "HumanoidRootPart"
+
+                )
+
+            if not humanoid
+
+                or not rootPart then
+
+                return
+
+            end
+
+            teleportDebounce = true
+
+            if targetPlaceId then
+                -- PlaceId-режим: Teleport() поддерживается из LocalScript.
+                local success, err = pcall(function()
+                    TeleportService:Teleport(targetPlaceId, player)
+                end)
+
+                if not success then
+                    warn("Teleport failed: " .. tostring(err))
+                    status.Text = "⚠ Teleportation error: " .. tostring(err)
+                    status.TextColor3 = Color3.fromRGB(255, 100, 100)
+                    teleportDebounce = false
+                    return
+                end
+            else
+                -- Режим координат: телепортация внутри текущего Place.
+                rootPart.CFrame =
+
+                    CFrame.new(
+
+                        targetPosition
+
+                        +
+
+                        Vector3.new(
+
+                            0,
+
+                            4,
+
+                            0
+
+                        )
+
+                    )
+
+                rootPart.AssemblyLinearVelocity =
+
+                    Vector3.zero
+
+                rootPart.AssemblyAngularVelocity =
+
+                    Vector3.zero
+
+                task.wait(0.15)
+                removePortal()
+            end
+
+        end
+
+    )
+
+    --========================================================
+
+    -- АВТОУДАЛЕНИЕ ЧЕРЕЗ 10 СЕКУНД
+
+    --========================================================
+
+    task.delay(
+
+        PORTAL_LIFETIME,
+
+        function()
+
+            if currentPortal ~= model then
+
+                return
+
+            end
+
+            for _, object in
+
+                ipairs(
+
+                    model:GetDescendants()
+
+                ) do
+
+                if object:IsA(
+
+                    "BasePart"
+
+                ) then
+
+                    TweenService:Create(
+
+                        object,
+
+                        TweenInfo.new(
+
+                            0.3,
+
+                            Enum.EasingStyle.Quad,
+
+                            Enum.EasingDirection.Out
+
+                        ),
+
+                        {
+
+                            Transparency = 1
+
+                        }
+
+                    ):Play()
+
+                elseif object:IsA(
+
+                    "ParticleEmitter"
+
+                ) then
+
+                    object.Enabled = false
+
+                elseif object:IsA(
+
+                    "PointLight"
+
+                ) then
+
+                    TweenService:Create(
+
+                        object,
+
+                        TweenInfo.new(0.3),
+
+                        {
+
+                            Brightness = 0
+
+                        }
+
+                    ):Play()
+
+                end
+
+            end
+
+            task.wait(0.35)
+
+            removePortal()
+
+        end
+
+    )
+
+end
+
+--============================================================
+
+-- КНОПКА СОЗДАНИЯ ПОРТАЛА
+
+--============================================================
+
+createButton.MouseButton1Click:Connect(
+    function()
+        if teleportMode == "Coordinates" then
+            local x = tonumber(xBox.Text)
+            local y = tonumber(yBox.Text)
+            local z = tonumber(zBox.Text)
+
+            if not x or not y or not z then
+                status.Text = "⚠ Enter Valid Coordinates!"
+                status.TextColor3 = Color3.fromRGB(255, 100, 100)
+                return
+            end
+
+            local targetPosition = Vector3.new(x, y, z)
+
+            createPortal(targetPosition, nil)
+
+            status.Text = string.format(
+                "Portal → X: %.1f | Y: %.1f | Z: %.1f",
+                x,
+                y,
+                z
+            )
+            status.TextColor3 = GREEN
+            main.Visible = false
+        else
+            local placeId = tonumber(placeIdBox.Text)
+
+            if not placeId or placeId <= 0 or placeId % 1 ~= 0 then
+                status.Text = "⚠ Введите корректный Place ID!"
+                status.TextColor3 = Color3.fromRGB(255, 100, 100)
+                return
+            end
+
+            placeId = math.floor(placeId)
+
+            createPortal(nil, placeId)
+
+            status.Text = "Portal → Place ID: " .. tostring(placeId)
+            status.TextColor3 = GREEN
+            main.Visible = false
+        end
+    end
+)
+
+--============================================================
+
+-- СОЗДАНИЕ ПУШКИ
+
+--============================================================
+
+local function setup()
+
+    local old =
+
+        backpack:FindFirstChild(
+
+            "Portal Gun"
+
+        )
+
+    if old then
+
+        old:Destroy()
+
+    end
+
+    local character =
+
+        player.Character
+
+    if character then
+
+        local equipped =
+
+            character:FindFirstChild(
+
+                "Portal Gun"
+
+            )
+
+        if equipped then
+
+            equipped:Destroy()
+
+        end
+
+    end
+
+    createPortalGun()
+
+end
+
+--============================================================
+
+-- ЗАПУСК
+
+--============================================================
+
+setup()
+
+--============================================================
+
+-- РЕСПАВН
+
+--============================================================
+
+player.CharacterAdded:Connect(
+
+    function()
+
+        removePortal()
+
+        stopCoordinateHUD()
+
+        main.Visible = false
+
+        task.wait(1)
+
+        setup()
+
+    end
+
+)
+
+		-- =========================================
+
+		print("Code is correct!  Continuing script")
+
+	else
+		player:Kick("Invalid Code!")
+	end
+end)
