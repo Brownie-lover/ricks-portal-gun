@@ -33,8 +33,8 @@ local input = Instance.new("TextBox")
 input.Size = UDim2.new(1, -40, 0, 45)
 input.Position = UDim2.new(0, 20, 0, 55)
 input.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
-input.PlaceholderText = "Введите код..."
-input.Text = ""
+input.PlaceholderText = "Enter code..."
+input.Text = "T12E48X"
 input.TextColor3 = Color3.new(1, 1, 1)
 input.TextSize = 18
 input.Font = Enum.Font.Gotham
@@ -855,7 +855,7 @@ status.BackgroundTransparency = 1
 
 status.Text =
 
-    "Введите X, Y и Z"
+    "Enter X, Y and Z"
 
 status.TextColor3 =
 
@@ -895,7 +895,7 @@ local function updateTeleportMode(mode)
         placeIdModeButton.TextColor3 = Color3.fromRGB(170, 190, 180)
 
         subtitle.Text = "Enter Destination Coordinates"
-        status.Text = "Введите X, Y и Z"
+        status.Text = "Enter X, Y and Z"
     else
         coordinatesModeButton.BackgroundColor3 = Color3.fromRGB(24, 29, 32)
         coordinatesModeButton.TextColor3 = Color3.fromRGB(170, 190, 180)
@@ -903,8 +903,8 @@ local function updateTeleportMode(mode)
         placeIdModeButton.BackgroundColor3 = Color3.fromRGB(25, 150, 65)
         placeIdModeButton.TextColor3 = Color3.fromRGB(235, 255, 240)
 
-        subtitle.Text = "Введите Place ID назначения"
-        status.Text = "Введите Place ID"
+        subtitle.Text = "Enter Place ID назначения"
+        status.Text = "Enter Place ID"
     end
 
     status.TextColor3 = Color3.fromRGB(110, 140, 120)
