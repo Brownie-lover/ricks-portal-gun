@@ -57,7 +57,7 @@ local GUN_SCALE = 0.4
 
 local GUN_ASSET_ID = 1118298602
 
-local GREEN = Color3.fromRGB(45, 255, 9
+local GREEN = Color3.fromRGB(45, 255, 90)
 
 local LIGHT_GREEN = Color3.fromRGB(150, 255, 170)
 
@@ -1013,6 +1013,26 @@ local function createGUI()
     main.Parent = gui
 
     menu = main
+
+    local previousMouseBehavior = Enum.MouseBehavior.Default
+
+    menu:GetPropertyChangedSignal("Visible"):Connect(function()
+
+        if menu.Visible then
+
+            previousMouseBehavior = UserInputService.MouseBehavior
+
+            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+
+            UserInputService.MouseIconEnabled = true
+
+        else
+
+            UserInputService.MouseBehavior = previousMouseBehavior
+
+        end
+
+    end)
 
     local corner = Instance.new("UICorner")
 
