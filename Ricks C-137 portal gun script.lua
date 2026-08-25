@@ -55,7 +55,9 @@ local mouse = player:GetMouse()
 
 local GUN_SCALE = 0.4
 
-local GREEN = Color3.fromRGB(45, 255, 90)
+local GUN_ASSET_ID = 1118298602
+
+local GREEN = Color3.fromRGB(45, 255, 9
 
 local LIGHT_GREEN = Color3.fromRGB(150, 255, 170)
 
@@ -66,7 +68,8 @@ local BODY_DARK = Color3.fromRGB(55, 57, 55)
 local PORTAL_LIFETIME = 15
 
 local PORTAL_DISTANCE = 7
-local PORTAL_TELEPORT_COOLDOWN = 1.35
+local PORTAL_TELEPORT_COOLDOWN = 0.8
+local PORTAL_TELEPORT_DELAY = 1
 local portalTeleportLocked = false
 
 local teleportMode = "Coordinates"
@@ -250,18 +253,6 @@ end
 local function clearPortalConnections()
 
     disconnectAll(portalConnections)
-
-end
-
-local function removeAllPortals()
-
-    destroyPortal(currentPortal)
-    destroyPortal(returnPortal)
-
-    currentPortal = nil
-    returnPortal = nil
-
-    portalTeleportLocked = false
 
 end
 
@@ -632,6 +623,50 @@ local function createPortal(position, facing, labelText, targetCFrame, isReturn)
         debounce = true
         portalTeleportLocked = true
 
+        if PORTAL_TELEPORT_DELAY > 0 then
+
+            task.wait(PORTAL_TELEPORT_DELAY)
+
+        end
+
+        -- Re-check the player is still actually standing in the portal
+
+        -- after the delay (so a quick graze doesn't still teleport them)
+
+        character = getCharacter()
+        root = getRoot(character)
+
+        if not character or not root or not root.Parent then
+
+            debounce = false
+            portalTeleportLocked = false
+
+            return
+
+        end
+
+        local stillTouching = false
+
+        for _, part in ipairs(portal:GetTouchingParts()) do
+
+            if part:IsDescendantOf(character) then
+
+                stillTouching = true
+                break
+
+            end
+
+        end
+
+        if not stillTouching then
+
+            debounce = false
+            portalTeleportLocked = false
+
+            return
+
+        end
+
         -- RETURN PORTAL
 
         if isReturn then
@@ -774,48 +809,6 @@ end
 
 --============================================================
 
--- Builds an exit CFrame that always keeps the player standing upright.
--- CFrame.lookAt() breaks down (produces a tilted/garbage orientation) when
--- the look direction is parallel to world-up, which is exactly what
--- happens when a portal is shot onto the floor or ceiling (surface normal
--- = straight up/down). When that happens we fall back to a horizontal
--- facing direction instead, so you always pop out standing up straight.
-local function computeExitCFrame(position, facing)
-
-    local horizontal = Vector3.new(facing.X, 0, facing.Z)
-
-    if horizontal.Magnitude < 0.05 then
-
-        -- Facing is (near) straight up or down - no usable horizontal
-        -- component. Fall back to the direction the player is currently
-        -- facing so the exit still points somewhere sensible.
-        local character = getCharacter()
-        local root = getRoot(character)
-
-        if root then
-            local lookVector = root.CFrame.LookVector
-            local rootHorizontal = Vector3.new(lookVector.X, 0, lookVector.Z)
-
-            if rootHorizontal.Magnitude > 0.05 then
-                horizontal = rootHorizontal
-            else
-                horizontal = Vector3.new(0, 0, -1)
-            end
-        else
-            horizontal = Vector3.new(0, 0, -1)
-        end
-
-    end
-
-    horizontal = horizontal.Unit
-
-    return CFrame.lookAt(
-        position,
-        position + horizontal,
-        Vector3.new(0, 1, 0)
-    )
-end
-
 local function shootPortalAtCursor()
 
     local character = getCharacter()
@@ -865,22 +858,19 @@ local function shootPortalAtCursor()
 
     -- Each portal targets the OTHER portal.
     -- Exit orientation: face OUT of the portal, just like a real portal.
-    -- Uses computeExitCFrame instead of a raw CFrame.lookAt so that a
-    -- portal shot on the floor/ceiling (vertical facing) still spits you
-    -- out standing upright instead of at a broken tilt.
     local destinationCFrame =
-        computeExitCFrame(
+        CFrame.lookAt(
             portalPosition + facing * 3,
-            facing
+            portalPosition + facing * 4
         )
 
     -- When returning, face AWAY from the GO TO portal.
     -- entranceFacing is the portal's outward normal, so the exit direction
     -- is the opposite of that normal.
     local entranceCFrame =
-        computeExitCFrame(
+        CFrame.lookAt(
             entrancePosition - entranceFacing * 3,
-            -entranceFacing
+            entrancePosition - entranceFacing * 4
         )
 
     -- Remove the old portal pair.
@@ -1081,53 +1071,6 @@ local function createGUI()
     close.MouseButton1Click:Connect(function()
 
         main.Visible = false
-
-    end)
-
-    -- Remove Portals (sits above the panel, not clipped since main
-    -- doesn't clip descendants, so it shows/hides with the menu)
-
-    local removeButton = Instance.new("TextButton")
-
-    removeButton.Name = "RemovePortalsButton"
-
-    removeButton.Size = UDim2.fromOffset(200, 40)
-
-    removeButton.AnchorPoint = Vector2.new(0.5, 1)
-
-    removeButton.Position = UDim2.new(0.5, 0, 0, -14)
-
-    removeButton.BackgroundColor3 = Color3.fromRGB(150, 35, 35)
-
-    removeButton.Text = "REMOVE PORTALS"
-
-    removeButton.TextColor3 = Color3.fromRGB(255, 235, 235)
-
-    removeButton.Font = Enum.Font.GothamBold
-
-    removeButton.TextSize = 15
-
-    removeButton.AutoButtonColor = false
-
-    removeButton.Parent = main
-
-    local removeCorner = Instance.new("UICorner")
-
-    removeCorner.CornerRadius = UDim.new(0, 10)
-
-    removeCorner.Parent = removeButton
-
-    local removeStroke = Instance.new("UIStroke")
-
-    removeStroke.Color = Color3.fromRGB(255, 120, 120)
-
-    removeStroke.Thickness = 1.5
-
-    removeStroke.Parent = removeButton
-
-    removeButton.MouseButton1Click:Connect(function()
-
-        removeAllPortals()
 
     end)
 
@@ -1883,67 +1826,6 @@ local function createGUI()
 
         createCoordinateHUD(gui)
 
-    -- Save My Coords - sits directly above the position HUD, fills the
-    -- X/Y/Z fields with the player's current (rounded) position so you
-    -- don't have to type numbers in manually.
-
-    local saveCoordsButton = Instance.new("TextButton")
-
-    saveCoordsButton.Name = "SaveMyCoordsButton"
-
-    saveCoordsButton.Size = UDim2.fromOffset(200, 34)
-
-    saveCoordsButton.Position = UDim2.new(1, -225, 1, -217)
-
-    saveCoordsButton.BackgroundColor3 = Color3.fromRGB(20, 45, 28)
-
-    saveCoordsButton.Text = "SAVE MY COORDS"
-
-    saveCoordsButton.TextColor3 = GREEN
-
-    saveCoordsButton.Font = Enum.Font.GothamBold
-
-    saveCoordsButton.TextSize = 13
-
-    saveCoordsButton.AutoButtonColor = false
-
-    saveCoordsButton.Visible = false
-
-    saveCoordsButton.Parent = gui
-
-    local saveCoordsCorner = Instance.new("UICorner")
-
-    saveCoordsCorner.CornerRadius = UDim.new(0, 10)
-
-    saveCoordsCorner.Parent = saveCoordsButton
-
-    local saveCoordsStroke = Instance.new("UIStroke")
-
-    saveCoordsStroke.Color = GREEN
-
-    saveCoordsStroke.Thickness = 1.5
-
-    saveCoordsStroke.Parent = saveCoordsButton
-
-    saveCoordsButton.MouseButton1Click:Connect(function()
-
-        local root = getRoot()
-
-        if not root then
-            return
-        end
-
-        local pos = root.Position
-
-        xBox.Text = tostring(math.floor(pos.X + 0.5))
-        yBox.Text = tostring(math.floor(pos.Y + 0.5))
-        zBox.Text = tostring(math.floor(pos.Z + 0.5))
-
-        updateMode("Coordinates")
-        menu.Visible = true
-
-    end)
-
     local function startHUD()
 
         if coordinateConnection then
@@ -1953,8 +1835,6 @@ local function createGUI()
         end
 
         coordinateFrame.Visible = true
-
-        saveCoordsButton.Visible = true
 
         coordinateConnection =
 
@@ -1990,8 +1870,6 @@ local function createGUI()
 
         coordinateFrame.Visible = false
 
-        saveCoordsButton.Visible = false
-
         if coordinateConnection then
 
             coordinateConnection:Disconnect()
@@ -2014,6 +1892,152 @@ end
 
 --============================================================
 
+--============================================================
+
+-- LOAD GUN VISUAL FROM CATALOG ASSET
+
+--============================================================
+
+local function loadGunAssetParts(tool)
+
+    local InsertService = game:GetService("InsertService")
+
+    local ok, container = pcall(function()
+
+        return InsertService:LoadAsset(GUN_ASSET_ID)
+
+    end)
+
+    if not ok or not container then
+
+        warn("Portal Gun: failed to load asset " .. tostring(GUN_ASSET_ID))
+
+        return nil
+
+    end
+
+    -- LoadAsset always wraps the result in a Model; look inside for a Tool
+
+    local innerTool = container:FindFirstChildOfClass("Tool")
+
+    local source = innerTool or container
+
+    local parts = {}
+
+    for _, descendant in ipairs(source:GetDescendants()) do
+
+        if descendant:IsA("BasePart") then
+
+            table.insert(parts, descendant)
+
+        end
+
+    end
+
+    if #parts == 0 and source:IsA("BasePart") then
+
+        table.insert(parts, source)
+
+    end
+
+    if #parts == 0 then
+
+        warn("Portal Gun: asset " .. tostring(GUN_ASSET_ID) .. " has no parts")
+
+        container:Destroy()
+
+        return nil
+
+    end
+
+    -- Prefer a part literally named "Handle"; otherwise use the first part
+
+    local handle
+
+    for _, part in ipairs(parts) do
+
+        if part.Name == "Handle" then
+
+            handle = part
+
+            break
+
+        end
+
+    end
+
+    handle = handle or parts[1]
+
+    handle.Name = "Handle"
+
+    for _, part in ipairs(parts) do
+
+        part.Anchored = false
+
+        part.CanCollide = false
+
+        part.CanTouch = false
+
+        part.CanQuery = false
+
+        part.Massless = true
+
+        part.CastShadow = false
+
+        part.Parent = tool
+
+        if part ~= handle then
+
+            local weld = Instance.new("WeldConstraint")
+
+            weld.Part0 = handle
+
+            weld.Part1 = part
+
+            weld.Parent = part
+
+        end
+
+    end
+
+    -- If the asset was already a Tool with its own grip, keep it
+
+    if innerTool and innerTool.Grip ~= CFrame.new() then
+
+        tool.Grip = innerTool.Grip
+
+    end
+
+    -- Optional: reuse a part named "PortalCore"/"Core" for the pulse glow
+
+    local core =
+
+        source:FindFirstChild("PortalCore", true) or
+
+        source:FindFirstChild("Core", true)
+
+    local coreLight = core and core:FindFirstChildOfClass("PointLight")
+
+    if core and not coreLight then
+
+        coreLight = Instance.new("PointLight")
+
+        coreLight.Color = GREEN
+
+        coreLight.Brightness = 3
+
+        coreLight.Range = 7
+
+        coreLight.Parent = core
+
+    end
+
+    container:Destroy()
+
+    return handle, core, coreLight
+
+end
+
 local function createPortalGun(startHUD, stopHUD)
 
     local tool = Instance.new("Tool")
@@ -2028,13 +2052,19 @@ local function createPortalGun(startHUD, stopHUD)
 
         "LMB = Menu | MMB = Shoot Portal"
 
+    local handle, core, coreLight = loadGunAssetParts(tool)
+
+    local usingCustomAsset = handle ~= nil
+
+    if not usingCustomAsset then
+
     --========================================================
 
     -- HANDLE
 
     --========================================================
 
-    local handle = Instance.new("Part")
+    handle = Instance.new("Part")
 
     handle.Name = "Handle"
 
@@ -2296,7 +2326,7 @@ local function createPortalGun(startHUD, stopHUD)
 
     chamberWeld.Parent = chamber
 
-    local core = Instance.new("Part")
+    core = Instance.new("Part")
 
     core.Name = "PortalCore"
 
@@ -2336,7 +2366,7 @@ local function createPortalGun(startHUD, stopHUD)
 
     coreWeld.Parent = core
 
-    local coreLight = Instance.new("PointLight")
+    coreLight = Instance.new("PointLight")
 
     coreLight.Color = GREEN
 
@@ -2458,6 +2488,10 @@ local function createPortalGun(startHUD, stopHUD)
 
     end
 
+    end -- not usingCustomAsset
+
+    local coreBaseSize = core and core.Size
+
     --========================================================
 
     -- EQUIPPED
@@ -2478,7 +2512,7 @@ local function createPortalGun(startHUD, stopHUD)
 
             RunService.RenderStepped:Connect(function()
 
-                if not core.Parent then
+                if not core or not core.Parent then
 
                     return
 
@@ -2492,29 +2526,19 @@ local function createPortalGun(startHUD, stopHUD)
 
                     0.12
 
-                local baseSize =
-
-                    Vector3.new(
-
-                        0.65,
-
-                        0.85,
-
-                        0.65
-
-                    ) *
-
-                    GUN_SCALE
-
                 core.Size =
 
-                    baseSize * pulse
+                    coreBaseSize * pulse
 
-                coreLight.Brightness =
+                if coreLight then
 
-                    3 +
+                    coreLight.Brightness =
 
-                    math.sin(os.clock() * 5)
+                        3 +
+
+                        math.sin(os.clock() * 5)
+
+                end
 
             end)
 
@@ -2586,11 +2610,19 @@ local function createPortalGun(startHUD, stopHUD)
 
                     end
 
-                elseif input.KeyCode == Enum.KeyCode.X then
+                elseif input.KeyCode == Enum.KeyCode.Equals then
 
                     if currentGun == tool then
 
-                        removeAllPortals()
+                        destroyPortal(currentPortal)
+
+                        destroyPortal(returnPortal)
+
+                        currentPortal = nil
+
+                        returnPortal = nil
+
+                        portalTeleportLocked = false
 
                     end
 
