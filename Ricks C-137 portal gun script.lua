@@ -66,7 +66,7 @@ local BODY_DARK = Color3.fromRGB(55, 57, 55)
 local PORTAL_LIFETIME = 15
 
 local PORTAL_DISTANCE = 7
-local PORTAL_TELEPORT_COOLDOWN = 0.8
+local PORTAL_TELEPORT_COOLDOWN = 1.35
 local portalTeleportLocked = false
 
 local teleportMode = "Coordinates"
