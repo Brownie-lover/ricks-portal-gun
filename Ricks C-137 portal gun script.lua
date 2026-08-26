@@ -55,8 +55,6 @@ local mouse = player:GetMouse()
 
 local GUN_SCALE = 0.4
 
-local GUN_ASSET_ID = 1118298602
-
 local GREEN = Color3.fromRGB(45, 255, 90)
 
 local LIGHT_GREEN = Color3.fromRGB(150, 255, 170)
@@ -1026,26 +1024,6 @@ local function createGUI()
 
     menu = main
 
-    local previousMouseBehavior = Enum.MouseBehavior.Default
-
-    menu:GetPropertyChangedSignal("Visible"):Connect(function()
-
-        if menu.Visible then
-
-            previousMouseBehavior = UserInputService.MouseBehavior
-
-            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-
-            UserInputService.MouseIconEnabled = true
-
-        else
-
-            UserInputService.MouseBehavior = previousMouseBehavior
-
-        end
-
-    end)
-
     local corner = Instance.new("UICorner")
 
     corner.CornerRadius = UDim.new(0, 16)
@@ -1905,67 +1883,6 @@ local function createGUI()
 
         createCoordinateHUD(gui)
 
-    -- Save My Coords - sits directly above the position HUD, fills the
-    -- X/Y/Z fields with the player's current (rounded) position so you
-    -- don't have to type numbers in manually.
-
-    local saveCoordsButton = Instance.new("TextButton")
-
-    saveCoordsButton.Name = "SaveMyCoordsButton"
-
-    saveCoordsButton.Size = UDim2.fromOffset(200, 34)
-
-    saveCoordsButton.Position = UDim2.new(1, -225, 1, -217)
-
-    saveCoordsButton.BackgroundColor3 = Color3.fromRGB(20, 45, 28)
-
-    saveCoordsButton.Text = "SAVE MY COORDS"
-
-    saveCoordsButton.TextColor3 = GREEN
-
-    saveCoordsButton.Font = Enum.Font.GothamBold
-
-    saveCoordsButton.TextSize = 13
-
-    saveCoordsButton.AutoButtonColor = false
-
-    saveCoordsButton.Visible = false
-
-    saveCoordsButton.Parent = gui
-
-    local saveCoordsCorner = Instance.new("UICorner")
-
-    saveCoordsCorner.CornerRadius = UDim.new(0, 10)
-
-    saveCoordsCorner.Parent = saveCoordsButton
-
-    local saveCoordsStroke = Instance.new("UIStroke")
-
-    saveCoordsStroke.Color = GREEN
-
-    saveCoordsStroke.Thickness = 1.5
-
-    saveCoordsStroke.Parent = saveCoordsButton
-
-    saveCoordsButton.MouseButton1Click:Connect(function()
-
-        local root = getRoot()
-
-        if not root then
-            return
-        end
-
-        local pos = root.Position
-
-        xBox.Text = tostring(math.floor(pos.X + 0.5))
-        yBox.Text = tostring(math.floor(pos.Y + 0.5))
-        zBox.Text = tostring(math.floor(pos.Z + 0.5))
-
-        updateMode("Coordinates")
-        menu.Visible = true
-
-    end)
-
     local function startHUD()
 
         if coordinateConnection then
@@ -1975,8 +1892,6 @@ local function createGUI()
         end
 
         coordinateFrame.Visible = true
-
-        saveCoordsButton.Visible = true
 
         coordinateConnection =
 
@@ -2012,8 +1927,6 @@ local function createGUI()
 
         coordinateFrame.Visible = false
 
-        saveCoordsButton.Visible = false
-
         if coordinateConnection then
 
             coordinateConnection:Disconnect()
@@ -2036,155 +1949,11 @@ end
 
 --============================================================
 
--- Tries to load a real gun model from the Roblox catalog (GUN_ASSET_ID).
--- Returns the handle/core/coreLight it found, or nil if the load failed
--- or the asset had no usable parts - in which case the caller falls back
--- to the hand-built part-by-part gun below.
-local function loadGunAssetParts(tool)
-
-    local InsertService = game:GetService("InsertService")
-
-    local ok, container = pcall(function()
-
-        return InsertService:LoadAsset(GUN_ASSET_ID)
-
-    end)
-
-    if not ok or not container then
-
-        warn("Portal Gun: failed to load asset " .. tostring(GUN_ASSET_ID))
-
-        return nil
-
-    end
-
-    -- LoadAsset always wraps the result in a Model; look inside for a Tool
-
-    local innerTool = container:FindFirstChildOfClass("Tool")
-
-    local source = innerTool or container
-
-    local parts = {}
-
-    for _, descendant in ipairs(source:GetDescendants()) do
-
-        if descendant:IsA("BasePart") then
-
-            table.insert(parts, descendant)
-
-        end
-
-    end
-
-    if #parts == 0 and source:IsA("BasePart") then
-
-        table.insert(parts, source)
-
-    end
-
-    if #parts == 0 then
-
-        warn("Portal Gun: asset " .. tostring(GUN_ASSET_ID) .. " has no parts")
-
-        container:Destroy()
-
-        return nil
-
-    end
-
-    -- Prefer a part literally named "Handle"; otherwise use the first part
-
-    local handle
-
-    for _, part in ipairs(parts) do
-
-        if part.Name == "Handle" then
-
-            handle = part
-
-            break
-
-        end
-
-    end
-
-    handle = handle or parts[1]
-
-    handle.Name = "Handle"
-
-    for _, part in ipairs(parts) do
-
-        part.Anchored = false
-
-        part.CanCollide = false
-
-        part.CanTouch = false
-
-        part.CanQuery = false
-
-        part.Massless = true
-
-        part.CastShadow = false
-
-        part.Parent = tool
-
-        if part ~= handle then
-
-            local weld = Instance.new("WeldConstraint")
-
-            weld.Part0 = handle
-
-            weld.Part1 = part
-
-            weld.Parent = part
-
-        end
-
-    end
-
-    -- If the asset was already a Tool with its own grip, keep it
-
-    if innerTool and innerTool.Grip ~= CFrame.new() then
-
-        tool.Grip = innerTool.Grip
-
-    end
-
-    -- Optional: reuse a part named "PortalCore"/"Core" for the pulse glow
-
-    local core =
-
-        source:FindFirstChild("PortalCore", true) or
-
-        source:FindFirstChild("Core", true)
-
-    local coreLight = core and core:FindFirstChildOfClass("PointLight")
-
-    if core and not coreLight then
-
-        coreLight = Instance.new("PointLight")
-
-        coreLight.Color = GREEN
-
-        coreLight.Brightness = 3
-
-        coreLight.Range = 7
-
-        coreLight.Parent = core
-
-    end
-
-    container:Destroy()
-
-    return handle, core, coreLight
-
-end
-
 local function createPortalGun(startHUD, stopHUD)
 
     local tool = Instance.new("Tool")
 
-    tool.Name = "Portal Gun"
+    tool.Name = "Rick C-137 Gun"
 
     tool.RequiresHandle = true
 
@@ -2194,19 +1963,13 @@ local function createPortalGun(startHUD, stopHUD)
 
         "LMB = Menu | MMB = Shoot Portal"
 
-    local handle, core, coreLight = loadGunAssetParts(tool)
-
-    local usingCustomAsset = handle ~= nil
-
-    if not usingCustomAsset then
-
     --========================================================
 
     -- HANDLE
 
     --========================================================
 
-    handle = Instance.new("Part")
+    local handle = Instance.new("Part")
 
     handle.Name = "Handle"
 
@@ -2468,7 +2231,7 @@ local function createPortalGun(startHUD, stopHUD)
 
     chamberWeld.Parent = chamber
 
-    core = Instance.new("Part")
+    local core = Instance.new("Part")
 
     core.Name = "PortalCore"
 
@@ -2508,7 +2271,7 @@ local function createPortalGun(startHUD, stopHUD)
 
     coreWeld.Parent = core
 
-    coreLight = Instance.new("PointLight")
+    local coreLight = Instance.new("PointLight")
 
     coreLight.Color = GREEN
 
@@ -2628,9 +2391,7 @@ local function createPortalGun(startHUD, stopHUD)
 
         end
 
-    end -- not usingCustomAsset
-
-    local coreBaseSize = core and core.Size
+    end
 
     --========================================================
 
@@ -2652,7 +2413,7 @@ local function createPortalGun(startHUD, stopHUD)
 
             RunService.RenderStepped:Connect(function()
 
-                if not core or not core.Parent then
+                if not core.Parent then
 
                     return
 
@@ -2666,19 +2427,29 @@ local function createPortalGun(startHUD, stopHUD)
 
                     0.12
 
+                local baseSize =
+
+                    Vector3.new(
+
+                        0.65,
+
+                        0.85,
+
+                        0.65
+
+                    ) *
+
+                    GUN_SCALE
+
                 core.Size =
 
-                    coreBaseSize * pulse
+                    baseSize * pulse
 
-                if coreLight then
+                coreLight.Brightness =
 
-                    coreLight.Brightness =
+                    3 +
 
-                        3 +
-
-                        math.sin(os.clock() * 5)
-
-                end
+                    math.sin(os.clock() * 5)
 
             end)
 
