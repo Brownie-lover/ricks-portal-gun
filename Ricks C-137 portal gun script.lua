@@ -69,7 +69,6 @@ local PORTAL_LIFETIME = 15
 
 local PORTAL_DISTANCE = 7
 local PORTAL_TELEPORT_COOLDOWN = 0.8
-local PORTAL_TELEPORT_DELAY = 0.1
 local portalTeleportLocked = false
 
 local teleportMode = "Coordinates"
@@ -253,6 +252,18 @@ end
 local function clearPortalConnections()
 
     disconnectAll(portalConnections)
+
+end
+
+local function removeAllPortals()
+
+    destroyPortal(currentPortal)
+    destroyPortal(returnPortal)
+
+    currentPortal = nil
+    returnPortal = nil
+
+    portalTeleportLocked = false
 
 end
 
@@ -623,50 +634,6 @@ local function createPortal(position, facing, labelText, targetCFrame, isReturn)
         debounce = true
         portalTeleportLocked = true
 
-        if PORTAL_TELEPORT_DELAY > 0 then
-
-            task.wait(PORTAL_TELEPORT_DELAY)
-
-        end
-
-        -- Re-check the player is still actually standing in the portal
-
-        -- after the delay (so a quick graze doesn't still teleport them)
-
-        character = getCharacter()
-        root = getRoot(character)
-
-        if not character or not root or not root.Parent then
-
-            debounce = false
-            portalTeleportLocked = false
-
-            return
-
-        end
-
-        local stillTouching = false
-
-        for _, part in ipairs(portal:GetTouchingParts()) do
-
-            if part:IsDescendantOf(character) then
-
-                stillTouching = true
-                break
-
-            end
-
-        end
-
-        if not stillTouching then
-
-            debounce = false
-            portalTeleportLocked = false
-
-            return
-
-        end
-
         -- RETURN PORTAL
 
         if isReturn then
@@ -809,6 +776,48 @@ end
 
 --============================================================
 
+-- Builds an exit CFrame that always keeps the player standing upright.
+-- CFrame.lookAt() breaks down (produces a tilted/garbage orientation) when
+-- the look direction is parallel to world-up, which is exactly what
+-- happens when a portal is shot onto the floor or ceiling (surface normal
+-- = straight up/down). When that happens we fall back to a horizontal
+-- facing direction instead, so you always pop out standing up straight.
+local function computeExitCFrame(position, facing)
+
+    local horizontal = Vector3.new(facing.X, 0, facing.Z)
+
+    if horizontal.Magnitude < 0.05 then
+
+        -- Facing is (near) straight up or down - no usable horizontal
+        -- component. Fall back to the direction the player is currently
+        -- facing so the exit still points somewhere sensible.
+        local character = getCharacter()
+        local root = getRoot(character)
+
+        if root then
+            local lookVector = root.CFrame.LookVector
+            local rootHorizontal = Vector3.new(lookVector.X, 0, lookVector.Z)
+
+            if rootHorizontal.Magnitude > 0.05 then
+                horizontal = rootHorizontal
+            else
+                horizontal = Vector3.new(0, 0, -1)
+            end
+        else
+            horizontal = Vector3.new(0, 0, -1)
+        end
+
+    end
+
+    horizontal = horizontal.Unit
+
+    return CFrame.lookAt(
+        position,
+        position + horizontal,
+        Vector3.new(0, 1, 0)
+    )
+end
+
 local function shootPortalAtCursor()
 
     local character = getCharacter()
@@ -858,19 +867,22 @@ local function shootPortalAtCursor()
 
     -- Each portal targets the OTHER portal.
     -- Exit orientation: face OUT of the portal, just like a real portal.
+    -- Uses computeExitCFrame instead of a raw CFrame.lookAt so that a
+    -- portal shot on the floor/ceiling (vertical facing) still spits you
+    -- out standing upright instead of at a broken tilt.
     local destinationCFrame =
-        CFrame.lookAt(
+        computeExitCFrame(
             portalPosition + facing * 3,
-            portalPosition + facing * 4
+            facing
         )
 
     -- When returning, face AWAY from the GO TO portal.
     -- entranceFacing is the portal's outward normal, so the exit direction
     -- is the opposite of that normal.
     local entranceCFrame =
-        CFrame.lookAt(
+        computeExitCFrame(
             entrancePosition - entranceFacing * 3,
-            entrancePosition - entranceFacing * 4
+            -entranceFacing
         )
 
     -- Remove the old portal pair.
@@ -1091,6 +1103,53 @@ local function createGUI()
     close.MouseButton1Click:Connect(function()
 
         main.Visible = false
+
+    end)
+
+    -- Remove Portals (sits above the panel, not clipped since main
+    -- doesn't clip descendants, so it shows/hides with the menu)
+
+    local removeButton = Instance.new("TextButton")
+
+    removeButton.Name = "RemovePortalsButton"
+
+    removeButton.Size = UDim2.fromOffset(200, 40)
+
+    removeButton.AnchorPoint = Vector2.new(0.5, 1)
+
+    removeButton.Position = UDim2.new(0.5, 0, 0, -14)
+
+    removeButton.BackgroundColor3 = Color3.fromRGB(150, 35, 35)
+
+    removeButton.Text = "REMOVE PORTALS"
+
+    removeButton.TextColor3 = Color3.fromRGB(255, 235, 235)
+
+    removeButton.Font = Enum.Font.GothamBold
+
+    removeButton.TextSize = 15
+
+    removeButton.AutoButtonColor = false
+
+    removeButton.Parent = main
+
+    local removeCorner = Instance.new("UICorner")
+
+    removeCorner.CornerRadius = UDim.new(0, 10)
+
+    removeCorner.Parent = removeButton
+
+    local removeStroke = Instance.new("UIStroke")
+
+    removeStroke.Color = Color3.fromRGB(255, 120, 120)
+
+    removeStroke.Thickness = 1.5
+
+    removeStroke.Parent = removeButton
+
+    removeButton.MouseButton1Click:Connect(function()
+
+        removeAllPortals()
 
     end)
 
@@ -1846,6 +1905,67 @@ local function createGUI()
 
         createCoordinateHUD(gui)
 
+    -- Save My Coords - sits directly above the position HUD, fills the
+    -- X/Y/Z fields with the player's current (rounded) position so you
+    -- don't have to type numbers in manually.
+
+    local saveCoordsButton = Instance.new("TextButton")
+
+    saveCoordsButton.Name = "SaveMyCoordsButton"
+
+    saveCoordsButton.Size = UDim2.fromOffset(200, 34)
+
+    saveCoordsButton.Position = UDim2.new(1, -225, 1, -217)
+
+    saveCoordsButton.BackgroundColor3 = Color3.fromRGB(20, 45, 28)
+
+    saveCoordsButton.Text = "SAVE MY COORDS"
+
+    saveCoordsButton.TextColor3 = GREEN
+
+    saveCoordsButton.Font = Enum.Font.GothamBold
+
+    saveCoordsButton.TextSize = 13
+
+    saveCoordsButton.AutoButtonColor = false
+
+    saveCoordsButton.Visible = false
+
+    saveCoordsButton.Parent = gui
+
+    local saveCoordsCorner = Instance.new("UICorner")
+
+    saveCoordsCorner.CornerRadius = UDim.new(0, 10)
+
+    saveCoordsCorner.Parent = saveCoordsButton
+
+    local saveCoordsStroke = Instance.new("UIStroke")
+
+    saveCoordsStroke.Color = GREEN
+
+    saveCoordsStroke.Thickness = 1.5
+
+    saveCoordsStroke.Parent = saveCoordsButton
+
+    saveCoordsButton.MouseButton1Click:Connect(function()
+
+        local root = getRoot()
+
+        if not root then
+            return
+        end
+
+        local pos = root.Position
+
+        xBox.Text = tostring(math.floor(pos.X + 0.5))
+        yBox.Text = tostring(math.floor(pos.Y + 0.5))
+        zBox.Text = tostring(math.floor(pos.Z + 0.5))
+
+        updateMode("Coordinates")
+        menu.Visible = true
+
+    end)
+
     local function startHUD()
 
         if coordinateConnection then
@@ -1855,6 +1975,8 @@ local function createGUI()
         end
 
         coordinateFrame.Visible = true
+
+        saveCoordsButton.Visible = true
 
         coordinateConnection =
 
@@ -1890,6 +2012,8 @@ local function createGUI()
 
         coordinateFrame.Visible = false
 
+        saveCoordsButton.Visible = false
+
         if coordinateConnection then
 
             coordinateConnection:Disconnect()
@@ -1912,12 +2036,10 @@ end
 
 --============================================================
 
---============================================================
-
--- LOAD GUN VISUAL FROM CATALOG ASSET
-
---============================================================
-
+-- Tries to load a real gun model from the Roblox catalog (GUN_ASSET_ID).
+-- Returns the handle/core/coreLight it found, or nil if the load failed
+-- or the asset had no usable parts - in which case the caller falls back
+-- to the hand-built part-by-part gun below.
 local function loadGunAssetParts(tool)
 
     local InsertService = game:GetService("InsertService")
@@ -2506,8 +2628,6 @@ local function createPortalGun(startHUD, stopHUD)
 
         end
 
-    end
-
     end -- not usingCustomAsset
 
     local coreBaseSize = core and core.Size
@@ -2630,19 +2750,11 @@ local function createPortalGun(startHUD, stopHUD)
 
                     end
 
-                elseif input.KeyCode == Enum.KeyCode.Equals then
+                elseif input.KeyCode == Enum.KeyCode.X then
 
                     if currentGun == tool then
 
-                        destroyPortal(currentPortal)
-
-                        destroyPortal(returnPortal)
-
-                        currentPortal = nil
-
-                        returnPortal = nil
-
-                        portalTeleportLocked = false
+                        removeAllPortals()
 
                     end
 
