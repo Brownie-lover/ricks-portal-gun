@@ -1,6 +1,6 @@
 --[[
 
-    PORTAL GUN
+    PORTAL GUN + SAVE COORDS
 
     LocalScript
 
@@ -12,8 +12,7 @@
 
     • Gun scale = 0.4
 
-    • Coordinates mode
-
+    • Coordinates mode + Save Current Coords button
 
     • Player mode + player list below input
 
@@ -66,7 +65,7 @@ local BODY_DARK = Color3.fromRGB(55, 57, 55)
 local PORTAL_LIFETIME = 15
 
 local PORTAL_DISTANCE = 7
-local PORTAL_TELEPORT_COOLDOWN = 0.8
+local PORTAL_TELEPORT_COOLDOWN = 1.2
 local portalTeleportLocked = false
 
 local teleportMode = "Coordinates"
@@ -774,21 +773,12 @@ end
 
 --============================================================
 
--- Builds an exit CFrame that always keeps the player standing upright.
--- CFrame.lookAt() breaks down (produces a tilted/garbage orientation) when
--- the look direction is parallel to world-up, which is exactly what
--- happens when a portal is shot onto the floor or ceiling (surface normal
--- = straight up/down). When that happens we fall back to a horizontal
--- facing direction instead, so you always pop out standing up straight.
 local function computeExitCFrame(position, facing)
 
     local horizontal = Vector3.new(facing.X, 0, facing.Z)
 
     if horizontal.Magnitude < 0.05 then
 
-        -- Facing is (near) straight up or down - no usable horizontal
-        -- component. Fall back to the direction the player is currently
-        -- facing so the exit still points somewhere sensible.
         local character = getCharacter()
         local root = getRoot(character)
 
@@ -853,7 +843,6 @@ local function shootPortalAtCursor()
     local portalPosition = hitPosition + normal * 0.25
     local facing = normal
 
-    -- Create the second side of the portal directly in front of you.
     local entrancePosition =
         root.Position + root.CFrame.LookVector * PORTAL_DISTANCE
 
@@ -863,31 +852,21 @@ local function shootPortalAtCursor()
     local entrancePortalFacing =
         -root.CFrame.LookVector
 
-    -- Each portal targets the OTHER portal.
-    -- Exit orientation: face OUT of the portal, just like a real portal.
-    -- Uses computeExitCFrame instead of a raw CFrame.lookAt so that a
-    -- portal shot on the floor/ceiling (vertical facing) still spits you
-    -- out standing upright instead of at a broken tilt.
     local destinationCFrame =
         computeExitCFrame(
             portalPosition + facing * 3,
             facing
         )
 
-    -- When returning, face AWAY from the GO TO portal.
-    -- entranceFacing is the portal's outward normal, so the exit direction
-    -- is the opposite of that normal.
     local entranceCFrame =
         computeExitCFrame(
             entrancePosition - entranceFacing * 3,
             -entranceFacing
         )
 
-    -- Remove the old portal pair.
     destroyPortal(currentPortal)
     destroyPortal(returnPortal)
 
-    -- Destination portal -> sends you to the portal in front of you.
     currentPortal = createPortal(
         portalPosition,
         facing,
@@ -896,7 +875,6 @@ local function shootPortalAtCursor()
         false
     )
 
-    -- Portal in front of you -> sends you to the destination portal.
     returnPortal = createPortal(
         entrancePosition,
         entrancePortalFacing,
@@ -1084,8 +1062,7 @@ local function createGUI()
 
     end)
 
-    -- Remove Portals (sits above the panel, not clipped since main
-    -- doesn't clip descendants, so it shows/hides with the menu)
+    -- Remove Portals
 
     local removeButton = Instance.new("TextButton")
 
@@ -1288,6 +1265,67 @@ local function createGUI()
     )
 
     playerBox.Visible = false
+
+    --========================================================
+
+    -- SAVE CURRENT COORDS BUTTON
+
+    --========================================================
+
+    local saveCoordsButton = Instance.new("TextButton")
+
+    saveCoordsButton.Name = "SaveCoordsButton"
+
+    saveCoordsButton.Size = UDim2.fromOffset(330, 38)
+
+    saveCoordsButton.Position = UDim2.fromOffset(30, 178)
+
+    saveCoordsButton.BackgroundColor3 = Color3.fromRGB(25, 80, 45)
+
+    saveCoordsButton.Text = "SAVE CURRENT COORDS"
+
+    saveCoordsButton.TextColor3 = Color3.fromRGB(220, 255, 225)
+
+    saveCoordsButton.Font = Enum.Font.GothamBold
+
+    saveCoordsButton.TextSize = 13
+
+    saveCoordsButton.AutoButtonColor = false
+
+    saveCoordsButton.Parent = main
+
+    local saveCorner = Instance.new("UICorner")
+
+    saveCorner.CornerRadius = UDim.new(0, 8)
+
+    saveCorner.Parent = saveCoordsButton
+
+    local saveStroke = Instance.new("UIStroke")
+
+    saveStroke.Color = GREEN
+
+    saveStroke.Thickness = 1
+
+    saveStroke.Parent = saveCoordsButton
+
+    saveCoordsButton.MouseButton1Click:Connect(function()
+        local character = getCharacter()
+        local root = getRoot(character)
+
+        if not root then
+            status.Text = "Character not found."
+            status.TextColor3 = Color3.fromRGB(255, 100, 100)
+            return
+        end
+
+        local pos = root.Position
+        xBox.Text = string.format("%.1f", pos.X)
+        yBox.Text = string.format("%.1f", pos.Y)
+        zBox.Text = string.format("%.1f", pos.Z)
+
+        status.Text = "Current coordinates saved!"
+        status.TextColor3 = GREEN
+    end)
 
     --========================================================
 
@@ -1559,6 +1597,7 @@ local function createGUI()
 
         zBox.Visible = coordinates
 
+        saveCoordsButton.Visible = coordinates
 
         playerBox.Visible = playerMode
 
@@ -1584,7 +1623,7 @@ local function createGUI()
 
             subtitle.Text = "Enter destination coordinates"
 
-            status.Text = "Enter X, Y and Z"
+            status.Text = "Enter X, Y and Z or click save coords"
 
         else
 
@@ -1664,7 +1703,6 @@ local function createGUI()
 
             local destinationFacing = Vector3.new(0, 0, -1)
 
-            -- Create a GO TO PORTAL in front of you, just like middle-click.
             local entrancePosition =
                 root.Position + root.CFrame.LookVector * PORTAL_DISTANCE
 
@@ -1674,8 +1712,6 @@ local function createGUI()
             local entrancePortalFacing =
                 -root.CFrame.LookVector
 
-            -- Each portal targets the OTHER portal.
-            -- Face outward from each portal when you come through it.
             local destinationCFrame =
                 CFrame.lookAt(
                     target + destinationFacing * 3,
@@ -1688,11 +1724,9 @@ local function createGUI()
                     entrancePosition + entranceFacing * 4
                 ) * CFrame.Angles(0, math.rad(180), 0)
 
-            -- Remove the old portal pair.
             destroyPortal(currentPortal)
             destroyPortal(returnPortal)
 
-            -- Destination portal -> sends you back to the GO TO PORTAL.
             currentPortal = createPortal(
                 target,
                 destinationFacing,
@@ -1701,7 +1735,6 @@ local function createGUI()
                 false
             )
 
-            -- GO TO PORTAL -> sends you to the coordinate destination.
             returnPortal = createPortal(
                 entrancePosition,
                 entrancePortalFacing,
@@ -1742,8 +1775,6 @@ local function createGUI()
 
             local target
 
-            -- Username
-
             for _, p in ipairs(Players:GetPlayers()) do
 
                 if string.lower(p.Name) == string.lower(name) then
@@ -1755,8 +1786,6 @@ local function createGUI()
                 end
 
             end
-
-            -- Display name
 
             if not target then
 
@@ -1813,10 +1842,6 @@ local function createGUI()
                 return
 
             end
-
-            -- Save the original spot and create a two-way portal pair.
-            -- The GO TO PORTAL stays exactly where you started, while the
-            -- destination portal is placed at the selected player's position.
 
             local entrancePosition =
                 root.Position + root.CFrame.LookVector * PORTAL_DISTANCE
@@ -1991,8 +2016,6 @@ local function createPortalGun(startHUD, stopHUD)
 
     handle.Parent = tool
 
-    -- Corrected hold rotation
-
     tool.Grip =
 
         CFrame.new(0, -0.05, -0.15) *
@@ -2092,8 +2115,6 @@ local function createPortalGun(startHUD, stopHUD)
         Vector3.new(-3.37, 1.4, 0)
 
     )
-
-    -- Green emitters
 
     for i = -1, 1 do
 
