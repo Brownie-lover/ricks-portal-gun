@@ -69,7 +69,7 @@ local PORTAL_LIFETIME = 15
 
 local PORTAL_DISTANCE = 7
 local PORTAL_TELEPORT_COOLDOWN = 0.8
-local PORTAL_TELEPORT_DELAY = 1
+local PORTAL_TELEPORT_DELAY = 0.5
 local portalTeleportLocked = false
 
 local teleportMode = "Coordinates"
