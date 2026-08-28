@@ -32,6 +32,7 @@ local GUN_SCALE = 0.4
 local PORTAL_LIFETIME = 15
 local PORTAL_DISTANCE = 7
 local PORTAL_TELEPORT_COOLDOWN = 0.8
+local ENTRANCE_AIR_DROP_OFFSET = 3 -- studs below your feet the "catch" portal spawns when airborne
 
 local portalTeleportLocked = false
 local teleportMode = "Coordinates"
@@ -84,6 +85,52 @@ local function getRoot(character)
         return nil
     end
     return character:FindFirstChild("HumanoidRootPart")
+end
+
+--============================================================
+-- AIRBORNE DETECTION (auto "catch" portal placement)
+--============================================================
+local function isCharacterAirborne(character)
+    character = character or getCharacter()
+    if not character then
+        return false
+    end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then
+        return false
+    end
+    if humanoid.FloorMaterial == Enum.Material.Air then
+        return true
+    end
+    local state = humanoid:GetState()
+    return state == Enum.HumanoidStateType.Freefall
+        or state == Enum.HumanoidStateType.Jumping
+end
+
+-- Works out where the entrance/return portal should physically spawn.
+-- Normally that's a vertical portal a few studs in front of you. But if
+-- you're falling/airborne, it instead drops a flat portal beneath your feet
+-- so you fall straight through it instead of missing it or eating fall damage.
+-- Returns: position, facing (passed into createPortal), upVector (to avoid a
+-- degenerate CFrame.lookAt when facing straight down), isFloorPortal
+local function getEntrancePlacement(root, character, horizontalLook)
+    horizontalLook = horizontalLook or root.CFrame.LookVector
+
+    if isCharacterAirborne(character) then
+        local position = root.Position - Vector3.new(0, ENTRANCE_AIR_DROP_OFFSET, 0)
+        local facing = Vector3.new(0, -1, 0)
+        local upVector = Vector3.new(horizontalLook.X, 0, horizontalLook.Z)
+        if upVector.Magnitude < 0.05 then
+            upVector = Vector3.new(0, 0, -1)
+        else
+            upVector = upVector.Unit
+        end
+        return position, facing, upVector, true
+    end
+
+    local position = root.Position + horizontalLook * PORTAL_DISTANCE
+    local facing = -horizontalLook
+    return position, facing, Vector3.new(0, 1, 0), false
 end
 
 --============================================================
@@ -168,7 +215,7 @@ end
 --============================================================
 -- PORTAL CREATOR (DYNAMIC THEME)
 --============================================================
-local function createPortal(position, facing, labelText, targetCFrame, isReturn)
+local function createPortal(position, facing, labelText, targetCFrame, isReturn, upVector)
     local activeColor = isEvilMortyMode and GOLD or GREEN
     local activeLight = isEvilMortyMode and LIGHT_GOLD or LIGHT_GREEN
 
@@ -176,7 +223,7 @@ local function createPortal(position, facing, labelText, targetCFrame, isReturn)
     model.Name = isReturn and "ReturnPortal" or "DestinationPortal"
     model.Parent = workspace
 
-    local portalCFrame = CFrame.lookAt(position, position + facing)
+    local portalCFrame = CFrame.lookAt(position, position + facing, upVector or Vector3.new(0, 1, 0))
 
     -- Outer portal
     local portal = Instance.new("Part")
@@ -449,7 +496,11 @@ local function shootPortalAtCursor()
 
     local entrancePosition = root.Position + root.CFrame.LookVector * PORTAL_DISTANCE
     local entranceFacing = -root.CFrame.LookVector
-    local entrancePortalFacing = -root.CFrame.LookVector
+
+    -- Where the return portal actually spawns: in front of you normally,
+    -- or flat beneath your feet if you're falling/airborne.
+    local portalPlacementPosition, entrancePortalFacing, entranceUpVector =
+        getEntrancePlacement(root, character, root.CFrame.LookVector)
 
     local destinationCFrame = computeExitCFrame(portalPosition + facing * 3, facing)
     local entranceCFrame = computeExitCFrame(entrancePosition - entranceFacing * 3, -entranceFacing)
@@ -458,7 +509,7 @@ local function shootPortalAtCursor()
     destroyPortal(returnPortal)
 
     currentPortal = createPortal(portalPosition, facing, "DESTINATION", entranceCFrame, false)
-    returnPortal = createPortal(entrancePosition, entrancePortalFacing, "GO TO PORTAL", destinationCFrame, true)
+    returnPortal = createPortal(portalPlacementPosition, entrancePortalFacing, "GO TO PORTAL", destinationCFrame, true, entranceUpVector)
 end
 
 --============================================================
@@ -911,7 +962,11 @@ local function createGUI(startHUD, stopHUD)
             local destinationFacing = Vector3.new(0, 0, -1)
             local entrancePosition = root.Position + root.CFrame.LookVector * PORTAL_DISTANCE
             local entranceFacing = -root.CFrame.LookVector
-            local entrancePortalFacing = -root.CFrame.LookVector
+
+            -- Where the return portal actually spawns: in front of you
+            -- normally, or flat beneath your feet if you're airborne.
+            local portalPlacementPosition, entrancePortalFacing, entranceUpVector =
+                getEntrancePlacement(root, character, root.CFrame.LookVector)
 
             local destinationCFrame = CFrame.lookAt(
                 target + destinationFacing * 3,
@@ -927,7 +982,7 @@ local function createGUI(startHUD, stopHUD)
             destroyPortal(returnPortal)
 
             currentPortal = createPortal(target, destinationFacing, "DESTINATION", entranceCFrame, false)
-            returnPortal = createPortal(entrancePosition, entrancePortalFacing, "GO TO PORTAL", destinationCFrame, true)
+            returnPortal = createPortal(portalPlacementPosition, entrancePortalFacing, "GO TO PORTAL", destinationCFrame, true, entranceUpVector)
 
             status.Text = string.format("Portal → %.1f, %.1f, %.1f", x, y, z)
             status.TextColor3 = activeColor
@@ -979,7 +1034,11 @@ local function createGUI(startHUD, stopHUD)
 
             local entrancePosition = root.Position + root.CFrame.LookVector * PORTAL_DISTANCE
             local entranceFacing = -root.CFrame.LookVector
-            local entrancePortalFacing = -root.CFrame.LookVector
+
+            -- Where the return portal actually spawns: in front of you
+            -- normally, or flat beneath your feet if you're airborne.
+            local portalPlacementPosition, entrancePortalFacing, entranceUpVector =
+                getEntrancePlacement(root, character, root.CFrame.LookVector)
 
             local destinationPosition = targetRoot.Position
             local destinationFacing = targetRoot.CFrame.LookVector
@@ -998,7 +1057,7 @@ local function createGUI(startHUD, stopHUD)
             destroyPortal(returnPortal)
 
             currentPortal = createPortal(destinationPosition, destinationFacing, "DESTINATION → " .. target.Name, entranceCFrame, false)
-            returnPortal = createPortal(entrancePosition, entrancePortalFacing, "GO TO " .. target.Name, destinationCFrame, true)
+            returnPortal = createPortal(portalPlacementPosition, entrancePortalFacing, "GO TO " .. target.Name, destinationCFrame, true, entranceUpVector)
 
             status.Text = "Portal → " .. target.Name
             status.TextColor3 = activeColor
