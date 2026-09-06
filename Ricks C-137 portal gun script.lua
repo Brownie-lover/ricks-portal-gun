@@ -12,6 +12,7 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
 
 local player = Players.LocalPlayer
 local backpack = player:WaitForChild("Backpack")
@@ -44,6 +45,10 @@ local playerBox
 local xBox
 local yBox
 local zBox
+local savedBox
+local savedLocations = {} -- {name = string, position = Vector3}
+local SAVED_LOCATIONS_FOLDER = "saved_portalgun_locations"
+local SAVED_LOCATIONS_FILE = string.format("%s/PortalGunSavedLocations_%d_%d.json", SAVED_LOCATIONS_FOLDER, player.UserId, game.PlaceId)
 local currentPortal
 local returnPortal
 local flipPortalFacing
@@ -71,6 +76,59 @@ local function disconnectAll(list)
     end
     table.clear(list)
 end
+
+--============================================================
+-- SAVED LOCATIONS: OPTIONAL DISK PERSISTENCE (executor-only)
+--============================================================
+-- Uses writefile/readfile/isfile if the environment provides them (common
+-- exploit/executor globals). These do NOT exist in a real published game
+-- for a LocalScript, so everything here is wrapped in pcall and silently
+-- no-ops there, leaving the original session-only behavior untouched.
+local function persistSavedLocations()
+    pcall(function()
+        if typeof(writefile) ~= "function" then
+            return
+        end
+        if typeof(isfolder) == "function" and typeof(makefolder) == "function" then
+            if not isfolder(SAVED_LOCATIONS_FOLDER) then
+                makefolder(SAVED_LOCATIONS_FOLDER)
+            end
+        end
+        local plain = {}
+        for _, entry in ipairs(savedLocations) do
+            table.insert(plain, {
+                name = entry.name,
+                position = {x = entry.position.X, y = entry.position.Y, z = entry.position.Z}
+            })
+        end
+        writefile(SAVED_LOCATIONS_FILE, HttpService:JSONEncode(plain))
+    end)
+end
+
+local function loadSavedLocations()
+    local ok, decoded = pcall(function()
+        if typeof(isfile) ~= "function" or typeof(readfile) ~= "function" then
+            return nil
+        end
+        if not isfile(SAVED_LOCATIONS_FILE) then
+            return nil
+        end
+        return HttpService:JSONDecode(readfile(SAVED_LOCATIONS_FILE))
+    end)
+
+    if ok and decoded then
+        for _, entry in ipairs(decoded) do
+            if type(entry) == "table" and entry.name and entry.position then
+                table.insert(savedLocations, {
+                    name = entry.name,
+                    position = Vector3.new(entry.position.x, entry.position.y, entry.position.z)
+                })
+            end
+        end
+    end
+end
+
+loadSavedLocations()
 
 --============================================================
 -- CHARACTER
@@ -645,8 +703,9 @@ local function createGUI(startHUD, stopHUD)
         return button
     end
 
-    modes.Coordinates = makeModeButton("COORDINATES", 80)
-    modes.Player = makeModeButton("PLAYER", 200)
+    modes.Coordinates = makeModeButton("COORDS", 20)
+    modes.Player = makeModeButton("PLAYER", 142)
+    modes.Saved = makeModeButton("SAVED", 264)
 
     -- FIELD CREATOR
     local function makeField(name, placeholder, position, size)
@@ -689,6 +748,15 @@ local function createGUI(startHUD, stopHUD)
     )
     playerBox.Visible = false
 
+    -- SAVED LOCATION NAME FIELD (type a new name to save, or it fills in when you click a saved entry)
+    savedBox = makeField(
+        "SavedName",
+        "Location Name (save or select)",
+        UDim2.fromOffset(30, 115),
+        UDim2.fromOffset(330, 58)
+    )
+    savedBox.Visible = false
+
     -- SAVE CURRENT COORDS BUTTON
     local saveCoordsButton = Instance.new("TextButton")
     saveCoordsButton.Name = "SaveCoordsButton"
@@ -725,6 +793,163 @@ local function createGUI(startHUD, stopHUD)
         zBox.Text = string.format("%.1f", pos.Z)
         status.Text = "Current coordinates saved!"
         status.TextColor3 = isEvilMortyMode and GOLD or GREEN
+    end)
+
+    -- SAVE NAMED LOCATION BUTTON (stores your current position under the typed name)
+    local saveLocationButton = Instance.new("TextButton")
+    saveLocationButton.Name = "SaveLocationButton"
+    saveLocationButton.Size = UDim2.fromOffset(330, 44)
+    saveLocationButton.Position = UDim2.fromOffset(30, 178)
+    saveLocationButton.BackgroundColor3 = Color3.fromRGB(80, 70, 25)
+    saveLocationButton.Text = "SAVE CURRENT LOCATION AS..."
+    saveLocationButton.TextColor3 = Color3.fromRGB(255, 245, 220)
+    saveLocationButton.Font = Enum.Font.GothamBold
+    saveLocationButton.TextSize = 15
+    saveLocationButton.AutoButtonColor = false
+    saveLocationButton.Visible = false
+    saveLocationButton.Parent = main
+
+    local saveLocationCorner = Instance.new("UICorner")
+    saveLocationCorner.CornerRadius = UDim.new(0, 8)
+    saveLocationCorner.Parent = saveLocationButton
+
+    local saveLocationStroke = Instance.new("UIStroke")
+    saveLocationStroke.Color = GOLD
+    saveLocationStroke.Thickness = 1
+    saveLocationStroke.Parent = saveLocationButton
+
+    -- SAVED LOCATIONS LIST
+    local savedList = Instance.new("ScrollingFrame")
+    savedList.Name = "SavedList"
+    savedList.Size = UDim2.fromOffset(330, 104)
+    savedList.Position = UDim2.fromOffset(30, 226)
+    savedList.BackgroundColor3 = Color3.fromRGB(23, 21, 18)
+    savedList.BorderSizePixel = 0
+    savedList.ScrollBarThickness = 4
+    savedList.Visible = false
+    savedList.CanvasSize = UDim2.new()
+    savedList.Parent = main
+
+    local savedListLayout = Instance.new("UIListLayout")
+    savedListLayout.Padding = UDim.new(0, 4)
+    savedListLayout.Parent = savedList
+
+    local savedListPadding = Instance.new("UIPadding")
+    savedListPadding.PaddingTop = UDim.new(0, 4)
+    savedListPadding.PaddingLeft = UDim.new(0, 4)
+    savedListPadding.PaddingRight = UDim.new(0, 4)
+    savedListPadding.Parent = savedList
+
+    local function refreshSavedList()
+        for _, child in ipairs(savedList:GetChildren()) do
+            if child:IsA("Frame") and child.Name == "SavedRow" then
+                child:Destroy()
+            end
+        end
+
+        for index, entry in ipairs(savedLocations) do
+            local row = Instance.new("Frame")
+            row.Name = "SavedRow"
+            row.Size = UDim2.new(1, -8, 0, 42)
+            row.BackgroundTransparency = 1
+            row.Parent = savedList
+
+            local button = Instance.new("TextButton")
+            button.Size = UDim2.new(1, -34, 1, 0)
+            button.BackgroundColor3 = Color3.fromRGB(35, 32, 27)
+            button.TextColor3 = Color3.fromRGB(255, 240, 220)
+            button.Font = Enum.Font.Gotham
+            button.TextSize = 13
+            button.TextWrapped = true
+            button.TextXAlignment = Enum.TextXAlignment.Left
+            button.AutoButtonColor = false
+            button.Parent = row
+
+            local pos = entry.position
+            button.Text = string.format(
+                "  %s\n  X: %d  Y: %d  Z: %d",
+                entry.name,
+                math.floor(pos.X + 0.5),
+                math.floor(pos.Y + 0.5),
+                math.floor(pos.Z + 0.5)
+            )
+
+            local buttonCorner = Instance.new("UICorner")
+            buttonCorner.CornerRadius = UDim.new(0, 6)
+            buttonCorner.Parent = button
+
+            button.MouseButton1Click:Connect(function()
+                savedBox.Text = entry.name
+                status.Text = "Selected: " .. entry.name
+                status.TextColor3 = isEvilMortyMode and GOLD or GREEN
+            end)
+
+            local deleteButton = Instance.new("TextButton")
+            deleteButton.Size = UDim2.fromOffset(28, 42)
+            deleteButton.Position = UDim2.new(1, -28, 0, 0)
+            deleteButton.BackgroundColor3 = Color3.fromRGB(60, 30, 28)
+            deleteButton.Text = "×"
+            deleteButton.TextColor3 = Color3.fromRGB(255, 190, 180)
+            deleteButton.Font = Enum.Font.GothamBold
+            deleteButton.TextSize = 16
+            deleteButton.AutoButtonColor = false
+            deleteButton.Parent = row
+
+            local deleteCorner = Instance.new("UICorner")
+            deleteCorner.CornerRadius = UDim.new(0, 6)
+            deleteCorner.Parent = deleteButton
+
+            deleteButton.MouseButton1Click:Connect(function()
+                table.remove(savedLocations, index)
+                if savedBox.Text == entry.name then
+                    savedBox.Text = ""
+                end
+                status.Text = "Deleted: " .. entry.name
+                status.TextColor3 = Color3.fromRGB(255, 170, 160)
+                refreshSavedList()
+                persistSavedLocations()
+            end)
+        end
+
+        task.defer(function()
+            savedList.CanvasSize = UDim2.fromOffset(0, savedListLayout.AbsoluteContentSize.Y + 8)
+        end)
+    end
+
+    saveLocationButton.MouseButton1Click:Connect(function()
+        local name = savedBox.Text:match("^%s*(.-)%s*$")
+        if name == "" then
+            status.Text = "Type a name for this location first."
+            status.TextColor3 = Color3.fromRGB(255, 100, 100)
+            return
+        end
+
+        local character = getCharacter()
+        local root = getRoot(character)
+        if not root then
+            status.Text = "Character not found."
+            status.TextColor3 = Color3.fromRGB(255, 100, 100)
+            return
+        end
+
+        local existingIndex
+        for index, entry in ipairs(savedLocations) do
+            if string.lower(entry.name) == string.lower(name) then
+                existingIndex = index
+                break
+            end
+        end
+
+        if existingIndex then
+            savedLocations[existingIndex].position = root.Position
+        else
+            table.insert(savedLocations, {name = name, position = root.Position})
+        end
+
+        status.Text = "Saved location: " .. name
+        status.TextColor3 = isEvilMortyMode and GOLD or GREEN
+        refreshSavedList()
+        persistSavedLocations()
     end)
 
     -- EXPANDED PLAYER LIST (Taller height so names fit nicely)
@@ -903,6 +1128,7 @@ local function createGUI(startHUD, stopHUD)
         teleportMode = mode
         local coordinates = mode == "Coordinates"
         local playerMode = mode == "Player"
+        local savedMode = mode == "Saved"
 
         xBox.Visible = coordinates
         yBox.Visible = coordinates
@@ -912,17 +1138,26 @@ local function createGUI(startHUD, stopHUD)
         playerBox.Visible = playerMode
         playerList.Visible = playerMode
 
+        savedBox.Visible = savedMode
+        saveLocationButton.Visible = savedMode
+        savedList.Visible = savedMode
+
         modes.Coordinates.BackgroundColor3 = coordinates and Color3.fromRGB(150, 120, 25) or Color3.fromRGB(29, 27, 24)
         modes.Player.BackgroundColor3 = playerMode and Color3.fromRGB(150, 120, 25) or Color3.fromRGB(29, 27, 24)
+        modes.Saved.BackgroundColor3 = savedMode and Color3.fromRGB(150, 120, 25) or Color3.fromRGB(29, 27, 24)
 
         if coordinates then
             subtitle.Text = "Enter destination coordinates"
             status.Text = "Enter X, Y and Z or click save coords"
-        else
+        elseif playerMode then
             subtitle.Text = "Choose a player"
             status.Text = "Select a player below"
             refreshPlayerList()
             startPlayerListUpdates()
+        else
+            subtitle.Text = "Save or select a saved location"
+            status.Text = "Type a name + save, or click a saved spot below"
+            refreshSavedList()
         end
 
         if not playerMode then
@@ -935,6 +1170,9 @@ local function createGUI(startHUD, stopHUD)
     end)
     modes.Player.MouseButton1Click:Connect(function()
         updateMode("Player")
+    end)
+    modes.Saved.MouseButton1Click:Connect(function()
+        updateMode("Saved")
     end)
 
     -- DEPLOY ACTION
@@ -1060,6 +1298,58 @@ local function createGUI(startHUD, stopHUD)
             returnPortal = createPortal(portalPlacementPosition, entrancePortalFacing, "GO TO " .. target.Name, destinationCFrame, true, entranceUpVector)
 
             status.Text = "Portal → " .. target.Name
+            status.TextColor3 = activeColor
+            main.Visible = false
+
+        elseif teleportMode == "Saved" then
+            local name = savedBox.Text:match("^%s*(.-)%s*$")
+            if name == "" then
+                status.Text = "Enter or select a saved location."
+                status.TextColor3 = Color3.fromRGB(255, 100, 100)
+                return
+            end
+
+            local targetEntry
+            for _, entry in ipairs(savedLocations) do
+                if string.lower(entry.name) == string.lower(name) then
+                    targetEntry = entry
+                    break
+                end
+            end
+
+            if not targetEntry then
+                status.Text = "Saved location not found."
+                status.TextColor3 = Color3.fromRGB(255, 100, 100)
+                return
+            end
+
+            local target = targetEntry.position + Vector3.new(0, 4, 0)
+            local destinationFacing = Vector3.new(0, 0, -1)
+            local entrancePosition = root.Position + root.CFrame.LookVector * PORTAL_DISTANCE
+            local entranceFacing = -root.CFrame.LookVector
+
+            -- Where the return portal actually spawns: in front of you
+            -- normally, or flat beneath your feet if you're airborne.
+            local portalPlacementPosition, entrancePortalFacing, entranceUpVector =
+                getEntrancePlacement(root, character, root.CFrame.LookVector)
+
+            local destinationCFrame = CFrame.lookAt(
+                target + destinationFacing * 3,
+                target + destinationFacing * 4
+            ) * CFrame.Angles(0, math.rad(180), 0)
+
+            local entranceCFrame = CFrame.lookAt(
+                entrancePosition + entranceFacing * 3,
+                entrancePosition + entranceFacing * 4
+            ) * CFrame.Angles(0, math.rad(180), 0)
+
+            destroyPortal(currentPortal)
+            destroyPortal(returnPortal)
+
+            currentPortal = createPortal(target, destinationFacing, "DESTINATION → " .. targetEntry.name, entranceCFrame, false)
+            returnPortal = createPortal(portalPlacementPosition, entrancePortalFacing, "GO TO " .. targetEntry.name, destinationCFrame, true, entranceUpVector)
+
+            status.Text = "Portal → " .. targetEntry.name
             status.TextColor3 = activeColor
             main.Visible = false
         end
