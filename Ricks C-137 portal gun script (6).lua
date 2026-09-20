@@ -1,0 +1,1932 @@
+--[[
+
+    PORTAL GUN + EXPANDED PLAYER LIST + FIXED UI LAYOUT
+
+    LocalScript
+
+    Place in StarterPlayerScripts or execute as a LocalScript.
+
+]]
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+
+local player = Players.LocalPlayer
+local backpack = player:WaitForChild("Backpack")
+local mouse = player:GetMouse()
+
+--============================================================
+-- THEME SETTINGS & PALETTES
+--============================================================
+local isEvilMortyMode = true
+local GOLD = Color3.fromRGB(255, 215, 0)
+local LIGHT_GOLD = Color3.fromRGB(255, 240, 150)
+local GREEN = Color3.fromRGB(0, 255, 100)
+local LIGHT_GREEN = Color3.fromRGB(150, 255, 200)
+local BODY_COLOR = Color3.fromRGB(150, 150, 145)
+local BODY_DARK = Color3.fromRGB(55, 57, 55)
+
+local GUN_SCALE = 0.4
+local PORTAL_LIFETIME = 15
+local PORTAL_DISTANCE = 7
+local PORTAL_TELEPORT_COOLDOWN = 0.8
+local ENTRANCE_AIR_DROP_OFFSET = 3 -- studs below your feet the "catch" portal spawns when airborne
+
+local portalTeleportLocked = false
+local teleportMode = "Coordinates"
+local shootFromGun = true
+local currentGun
+local mainGui
+local menu
+local status
+local playerBox
+local xBox
+local yBox
+local zBox
+local savedBox
+local savedLocations = {} -- {name = string, position = Vector3}
+local SAVED_LOCATIONS_FOLDER = "saved_portalgun_locations"
+local SAVED_LOCATIONS_FILE = string.format("%s/PortalGunSavedLocations_%d_%d.json", SAVED_LOCATIONS_FOLDER, player.UserId, game.PlaceId)
+local currentPortal
+local returnPortal
+local flipPortalFacing
+local portalConnections = {}
+local playerListButtons = {}
+local gunAnimationConnection
+local coordinateConnection
+local toggleColorButton
+local toggleStroke
+local corePart
+local coreLightRef
+local portalBall
+local portalBallConnection
+local activePortals = {}
+
+-- Disarms every currently active portal. A disarmed portal will not teleport
+-- you until you step back out of it (re-armed via TouchEnded).
+local function disarmAllPortals()
+    for i = #activePortals, 1, -1 do
+        local entry = activePortals[i]
+        if entry.model.Parent then
+            entry.disarm()
+        else
+            table.remove(activePortals, i)
+        end
+    end
+end
+
+-- Forward declarations
+local updateToolTheme
+local createPortalGun
+
+--============================================================
+-- CLEANUP CONNECTIONS
+--============================================================
+local function disconnectAll(list)
+    for _, connection in ipairs(list) do
+        if connection then
+            connection:Disconnect()
+        end
+    end
+    table.clear(list)
+end
+
+--============================================================
+-- SAVED LOCATIONS: OPTIONAL DISK PERSISTENCE (executor-only)
+--============================================================
+-- Uses writefile/readfile/isfile if the environment provides them (common
+-- exploit/executor globals). These do NOT exist in a real published game
+-- for a LocalScript, so everything here is wrapped in pcall and silently
+-- no-ops there, leaving the original session-only behavior untouched.
+local function persistSavedLocations()
+    pcall(function()
+        if typeof(writefile) ~= "function" then
+            return
+        end
+        if typeof(isfolder) == "function" and typeof(makefolder) == "function" then
+            if not isfolder(SAVED_LOCATIONS_FOLDER) then
+                makefolder(SAVED_LOCATIONS_FOLDER)
+            end
+        end
+        local plain = {}
+        for _, entry in ipairs(savedLocations) do
+            table.insert(plain, {
+                name = entry.name,
+                position = {x = entry.position.X, y = entry.position.Y, z = entry.position.Z}
+            })
+        end
+        writefile(SAVED_LOCATIONS_FILE, HttpService:JSONEncode(plain))
+    end)
+end
+
+local function loadSavedLocations()
+    local ok, decoded = pcall(function()
+        if typeof(isfile) ~= "function" or typeof(readfile) ~= "function" then
+            return nil
+        end
+        if not isfile(SAVED_LOCATIONS_FILE) then
+            return nil
+        end
+        return HttpService:JSONDecode(readfile(SAVED_LOCATIONS_FILE))
+    end)
+
+    if ok and decoded then
+        for _, entry in ipairs(decoded) do
+            if type(entry) == "table" and entry.name and entry.position then
+                table.insert(savedLocations, {
+                    name = entry.name,
+                    position = Vector3.new(entry.position.x, entry.position.y, entry.position.z)
+                })
+            end
+        end
+    end
+end
+
+loadSavedLocations()
+
+--============================================================
+-- CHARACTER
+--============================================================
+local function getCharacter()
+    return player.Character
+end
+
+local function getRoot(character)
+    character = character or getCharacter()
+    if not character then
+        return nil
+    end
+    return character:FindFirstChild("HumanoidRootPart")
+end
+
+--============================================================
+-- AIRBORNE DETECTION (auto "catch" portal placement)
+--============================================================
+local function isCharacterAirborne(character)
+    character = character or getCharacter()
+    if not character then
+        return false
+    end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then
+        return false
+    end
+    if humanoid.FloorMaterial == Enum.Material.Air then
+        return true
+    end
+    local state = humanoid:GetState()
+    return state == Enum.HumanoidStateType.Freefall
+        or state == Enum.HumanoidStateType.Jumping
+end
+
+-- Works out where the entrance/return portal should physically spawn.
+-- Normally that's a vertical portal a few studs in front of you. But if
+-- you're falling/airborne, it instead drops a flat portal beneath your feet
+-- so you fall straight through it instead of missing it or eating fall damage.
+-- Returns: position, facing (passed into createPortal), upVector (to avoid a
+-- degenerate CFrame.lookAt when facing straight down), isFloorPortal
+local function getEntrancePlacement(root, character, horizontalLook)
+    horizontalLook = horizontalLook or root.CFrame.LookVector
+
+    if isCharacterAirborne(character) then
+        local position = root.Position - Vector3.new(0, ENTRANCE_AIR_DROP_OFFSET, 0)
+        local facing = Vector3.new(0, -1, 0)
+        local upVector = Vector3.new(horizontalLook.X, 0, horizontalLook.Z)
+        if upVector.Magnitude < 0.05 then
+            upVector = Vector3.new(0, 0, -1)
+        else
+            upVector = upVector.Unit
+        end
+        return position, facing, upVector, true
+    end
+
+    local position = root.Position + horizontalLook * PORTAL_DISTANCE
+    local facing = -horizontalLook
+    return position, facing, Vector3.new(0, 1, 0), false
+end
+
+--============================================================
+-- PORTAL TELEPORT / CAMERA
+--============================================================
+local cameraSnapId = "PortalCameraSnap"
+local function teleportPlayerTo(targetCFrame)
+    local character = getCharacter()
+    local root = getRoot(character)
+    if not root or not targetCFrame then
+        return
+    end
+    root.CFrame = targetCFrame
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.AssemblyAngularVelocity = Vector3.zero
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.AutoRotate = false
+    end
+    local camera = workspace.CurrentCamera
+    local desiredLook = targetCFrame.LookVector
+    pcall(function()
+        RunService:UnbindFromRenderStep(cameraSnapId)
+    end)
+    if camera then
+        RunService:BindToRenderStep(
+            cameraSnapId,
+            Enum.RenderPriority.Camera.Value + 1,
+            function()
+                local currentCamera = workspace.CurrentCamera
+                if not currentCamera then
+                    return
+                end
+                local cameraPosition = currentCamera.CFrame.Position
+                currentCamera.CFrame = CFrame.lookAt(
+                    cameraPosition,
+                    cameraPosition + desiredLook
+                )
+            end
+        )
+        task.delay(0.25, function()
+            pcall(function()
+                RunService:UnbindFromRenderStep(cameraSnapId)
+            end)
+            local currentHumanoid = getCharacter() and
+                getCharacter():FindFirstChildOfClass("Humanoid")
+            if currentHumanoid then
+                currentHumanoid.AutoRotate = true
+            end
+        end)
+    else
+        if humanoid then
+            humanoid.AutoRotate = true
+        end
+    end
+end
+
+--============================================================
+-- PORTAL CLEANUP
+--============================================================
+local function destroyPortal(portal)
+    if not portal then
+        return
+    end
+    if portal.Parent then
+        portal:Destroy()
+    end
+end
+
+local function clearPortalConnections()
+    disconnectAll(portalConnections)
+end
+
+local function removeAllPortals()
+    destroyPortal(currentPortal)
+    destroyPortal(returnPortal)
+    currentPortal = nil
+    returnPortal = nil
+    portalTeleportLocked = false
+end
+
+--============================================================
+-- PORTAL CREATOR (DYNAMIC THEME)
+--============================================================
+local function createPortal(position, facing, labelText, targetCFrame, isReturn, upVector)
+    local activeColor = isEvilMortyMode and GOLD or GREEN
+    local activeLight = isEvilMortyMode and LIGHT_GOLD or LIGHT_GREEN
+
+    local model = Instance.new("Model")
+    model.Name = isReturn and "ReturnPortal" or "DestinationPortal"
+    model.Parent = workspace
+
+    local portalCFrame = CFrame.lookAt(position, position + facing, upVector or Vector3.new(0, 1, 0))
+
+    -- Outer portal
+    local portal = Instance.new("Part")
+    portal.Name = isReturn and "RETURN" or "DESTINATION"
+    portal.Size = Vector3.new(7, 10, 0.4)
+    portal.CFrame = portalCFrame
+    portal.Color = activeColor
+    portal.Material = Enum.Material.Neon
+    portal.Transparency = 0.25
+    portal.Anchored = true
+    portal.CanCollide = false
+    portal.CanTouch = true
+    portal.CanQuery = false
+    portal.CastShadow = false
+    portal.Parent = model
+
+    local mesh = Instance.new("SpecialMesh")
+    mesh.MeshType = Enum.MeshType.Sphere
+    mesh.Scale = Vector3.new(0.55, 1, 0.07)
+    mesh.Parent = portal
+
+    -- Inner portal
+    local inner = Instance.new("Part")
+    inner.Name = "PortalCore"
+    inner.Size = Vector3.new(6.2, 9.2, 0.15)
+    inner.CFrame = portalCFrame * CFrame.new(0, 0, -0.12)
+    inner.Color = activeLight
+    inner.Material = Enum.Material.Neon
+    inner.Transparency = 0.35
+    inner.Anchored = true
+    inner.CanCollide = false
+    inner.CanTouch = false
+    inner.CanQuery = false
+    inner.CastShadow = false
+    inner.Parent = model
+
+    local innerMesh = Instance.new("SpecialMesh")
+    innerMesh.MeshType = Enum.MeshType.Sphere
+    innerMesh.Scale = Vector3.new(0.55, 1, 0.05)
+    innerMesh.Parent = inner
+
+    -- Light
+    local light = Instance.new("PointLight")
+    light.Color = activeColor
+    light.Brightness = 8
+    light.Range = 18
+    light.Parent = portal
+
+    -- Particles
+    local attachment = Instance.new("Attachment")
+    attachment.Parent = portal
+
+    local particles = Instance.new("ParticleEmitter")
+    particles.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, isEvilMortyMode and Color3.fromRGB(255, 180, 0) or Color3.fromRGB(0, 200, 50)),
+        ColorSequenceKeypoint.new(0.5, activeLight),
+        ColorSequenceKeypoint.new(1, isEvilMortyMode and Color3.fromRGB(200, 130, 0) or Color3.fromRGB(0, 120, 30))
+    })
+    particles.LightEmission = 1
+    particles.LightInfluence = 0
+    particles.Rate = 120
+    particles.Lifetime = NumberRange.new(0.4, 1)
+    particles.Speed = NumberRange.new(1, 4)
+    particles.SpreadAngle = Vector2.new(180, 180)
+    particles.Rotation = NumberRange.new(0, 360)
+    particles.RotSpeed = NumberRange.new(-250, 250)
+    particles.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.2),
+        NumberSequenceKeypoint.new(0.5, 0.08),
+        NumberSequenceKeypoint.new(1, 0)
+    })
+    particles.Parent = attachment
+
+    -- Energy rings
+    for i = 1, 4 do
+        local ring = Instance.new("Part")
+        ring.Name = "EnergyRing"
+        ring.Shape = Enum.PartType.Cylinder
+        local ringBase = 6 + i * 0.55
+        ring.Size = Vector3.new(0.08, ringBase, ringBase)
+        ring:SetAttribute("BaseRadius", ringBase)
+        ring.CFrame = portalCFrame * CFrame.Angles(math.rad(90), 0, math.rad(i * 45))
+        ring.Color = activeColor
+        ring.Material = Enum.Material.Neon
+        ring.Transparency = 0.3
+        ring.Anchored = true
+        ring.CanCollide = false
+        ring.CanTouch = false
+        ring.CanQuery = false
+        ring.CastShadow = false
+        ring.Parent = model
+    end
+
+    -- Label
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "PortalLabel"
+    billboard.Size = UDim2.fromOffset(280, 50)
+    billboard.StudsOffset = Vector3.new(0, 6, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = portal
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.fromScale(1, 1)
+    label.BackgroundTransparency = 1
+    label.Text = labelText
+    label.TextColor3 = activeColor
+    label.TextStrokeTransparency = 0.3
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 20
+    label.Parent = billboard
+
+    -- Animation
+    local startTime = os.clock()
+    local GROWTH_DURATION = 0.35
+    local animationConnection
+    animationConnection = RunService.RenderStepped:Connect(function()
+        if not model.Parent then
+            animationConnection:Disconnect()
+            return
+        end
+        local elapsed = os.clock() - startTime
+
+        -- Portal rapidly grows from tiny to full size, then idles pulsing.
+        local growth = math.max(0.02, math.min(1, elapsed / GROWTH_DURATION))
+        growth = 1 - (1 - growth) ^ 3
+
+        local pulse = 1 + math.sin(elapsed * 5) * 0.06
+        local portalScale = pulse * growth
+        portal.Size = Vector3.new(7 * portalScale, 10 * portalScale, 0.4)
+        inner.Size = Vector3.new(6.2 * portalScale, 9.2 * portalScale, 0.15)
+
+        for _, object in ipairs(model:GetChildren()) do
+            if object.Name == "EnergyRing" then
+                object.CFrame = portal.CFrame * CFrame.Angles(math.rad(90), elapsed * 0.8, math.rad(45))
+                local base = object:GetAttribute("BaseRadius") or 6
+                object.Size = Vector3.new(0.08, base * portalScale, base * portalScale)
+            end
+        end
+    end)
+    table.insert(portalConnections, animationConnection)
+
+    -- TELEPORT
+    -- Each portal is "armed" and can only fire once the player is standing on
+    -- it. After a teleport every portal is disarmed; a portal only re-arms
+    -- once the player steps back out of it (so no instant bouncing).
+    local armed = true
+    local entry = {
+        model = model,
+        disarm = function()
+            armed = false
+        end,
+    }
+    table.insert(activePortals, entry)
+
+    local touchConnection
+    touchConnection = portal.Touched:Connect(function(hit)
+        if not armed then
+            return
+        end
+        local character = getCharacter()
+        local root = getRoot(character)
+        if not character or not root then
+            return
+        end
+        if not hit:IsDescendantOf(character) then
+            return
+        end
+
+        armed = false
+        disarmAllPortals()
+
+        if isReturn then
+            if targetCFrame then
+                teleportPlayerTo(targetCFrame)
+            end
+        elseif targetCFrame then
+            root.CFrame = targetCFrame
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            flipPortalFacing(returnPortal)
+        end
+    end)
+    table.insert(portalConnections, touchConnection)
+
+    -- Re-arm this portal only once the player has fully stepped out of it.
+    local touchEndConnection
+    touchEndConnection = portal.TouchEnded:Connect(function(hit)
+        local character = getCharacter()
+        if not character then
+            return
+        end
+        if not hit:IsDescendantOf(character) then
+            return
+        end
+        task.wait(0)
+        local characterNow = getCharacter()
+        if not characterNow then
+            return
+        end
+        local stillInside = false
+        for _, touching in ipairs(portal:GetTouchingParts()) do
+            if touching:IsDescendantOf(characterNow) then
+                stillInside = true
+                break
+            end
+        end
+        if not stillInside then
+            armed = true
+        end
+    end)
+    table.insert(portalConnections, touchEndConnection)
+
+    task.delay(PORTAL_LIFETIME, function()
+        if model.Parent then
+            for _, object in ipairs(model:GetDescendants()) do
+                if object:IsA("BasePart") then
+                    TweenService:Create(object, TweenInfo.new(0.3), {Transparency = 1}):Play()
+                elseif object:IsA("ParticleEmitter") then
+                    object.Enabled = false
+                elseif object:IsA("PointLight") then
+                    TweenService:Create(object, TweenInfo.new(0.3), {Brightness = 0}):Play()
+                end
+            end
+            task.wait(0.35)
+            if model.Parent then
+                model:Destroy()
+            end
+        end
+    end)
+
+    return model
+end
+
+--============================================================
+-- PORTAL ORIENTATION
+--============================================================
+flipPortalFacing = function(portalModel)
+    if not portalModel or not portalModel.Parent then
+        return
+    end
+    local portalPart = portalModel:FindFirstChild("RETURN")
+        or portalModel:FindFirstChild("DESTINATION")
+    if not portalPart or not portalPart:IsA("BasePart") then
+        return
+    end
+
+    local oldCFrame = portalPart.CFrame
+    local newCFrame = oldCFrame * CFrame.Angles(0, math.rad(180), 0)
+
+    for _, object in ipairs(portalModel:GetDescendants()) do
+        if object:IsA("BasePart") then
+            local relative = oldCFrame:ToObjectSpace(object.CFrame)
+            object.CFrame = newCFrame * relative
+        end
+    end
+end
+
+--============================================================
+-- AIM PORTAL AT CURSOR
+--============================================================
+local function computeExitCFrame(position, facing)
+    local horizontal = Vector3.new(facing.X, 0, facing.Z)
+    if horizontal.Magnitude < 0.05 then
+        local character = getCharacter()
+        local root = getRoot(character)
+        if root then
+            local lookVector = root.CFrame.LookVector
+            local rootHorizontal = Vector3.new(lookVector.X, 0, lookVector.Z)
+            if rootHorizontal.Magnitude > 0.05 then
+                horizontal = rootHorizontal
+            else
+                horizontal = Vector3.new(0, 0, -1)
+            end
+        else
+            horizontal = Vector3.new(0, 0, -1)
+        end
+    end
+    horizontal = horizontal.Unit
+    return CFrame.lookAt(position, position + horizontal, Vector3.new(0, 1, 0))
+end
+
+-- Removes any in-flight portal ball.
+local function clearPortalBall()
+    if portalBall then
+        portalBall:Destroy()
+        portalBall = nil
+    end
+    if portalBallConnection then
+        portalBallConnection:Disconnect()
+        portalBallConnection = nil
+    end
+end
+
+-- Places the destination portal where the ball hit, plus the return portal
+-- near the player.
+local function placePortalAt(hitPosition, normal)
+    local character = getCharacter()
+    local root = getRoot(character)
+    if not character or not root then
+        return
+    end
+
+    local portalPosition = hitPosition + normal * 0.25
+    local facing = normal
+
+    local entrancePosition = root.Position + root.CFrame.LookVector * PORTAL_DISTANCE
+    local entranceFacing = -root.CFrame.LookVector
+
+    -- Where the return portal actually spawns: in front of you normally,
+    -- or flat beneath your feet if you're falling/airborne.
+    local portalPlacementPosition, entrancePortalFacing, entranceUpVector =
+        getEntrancePlacement(root, character, root.CFrame.LookVector)
+
+    local destinationCFrame = computeExitCFrame(portalPosition + facing * 3, facing)
+    local entranceCFrame = computeExitCFrame(entrancePosition - entranceFacing * 3, -entranceFacing)
+
+    destroyPortal(currentPortal)
+    destroyPortal(returnPortal)
+
+    currentPortal = createPortal(portalPosition, facing, "DESTINATION", entranceCFrame, false)
+    returnPortal = createPortal(portalPlacementPosition, entrancePortalFacing, "GO TO PORTAL", destinationCFrame, true, entranceUpVector)
+end
+
+-- Shoots a glowing ball (tinted the active theme color) toward where the
+-- cursor is pointing. When the ball hits something, the portal is placed
+-- at that spot.
+local function shootPortalAtCursor()
+    local character = getCharacter()
+    local root = getRoot(character)
+    if not character or not root then
+        return
+    end
+    local camera = workspace.CurrentCamera
+    if not camera then
+        return
+    end
+
+    local mousePosition = UserInputService:GetMouseLocation()
+    local ray = camera:ViewportPointToRay(mousePosition.X, mousePosition.Y)
+    local direction = ray.Direction.Unit
+
+    -- Clear any previous ball still flying.
+    clearPortalBall()
+
+    local activeColor = isEvilMortyMode and GOLD or GREEN
+    local activeLight = isEvilMortyMode and LIGHT_GOLD or LIGHT_GREEN
+
+    local ball = Instance.new("Part")
+    ball.Name = "PortalBall"
+    ball.Shape = Enum.PartType.Ball
+    ball.Size = Vector3.new(0.8, 0.8, 0.8)
+    ball.Color = activeColor
+    ball.Material = Enum.Material.Neon
+    ball.CanCollide = false
+    ball.CanTouch = true
+    ball.CanQuery = false
+    ball.CastShadow = false
+    ball.Anchored = true
+    ball.Parent = workspace
+
+    -- Spawn the ball from the gun's muzzle (or the camera, if toggled off).
+    local muzzlePart
+    if shootFromGun and currentGun and currentGun:FindFirstChild("GoldEmitter") then
+        muzzlePart = currentGun.GoldEmitter
+    elseif shootFromGun and currentGun and currentGun:FindFirstChild("FrontPanel") then
+        muzzlePart = currentGun.FrontPanel
+    end
+    if muzzlePart and muzzlePart:IsA("BasePart") then
+        ball.CFrame = CFrame.new(muzzlePart.CFrame.Position + direction * 0.5)
+    else
+        ball.CFrame = CFrame.new(camera.CFrame.Position + camera.CFrame.LookVector * 2)
+    end
+
+    local light = Instance.new("PointLight")
+    light.Color = activeLight
+    light.Brightness = 6
+    light.Range = 14
+    light.Parent = ball
+
+    local attachment = Instance.new("Attachment")
+    attachment.Parent = ball
+
+    local trail = Instance.new("Trail")
+    trail.Color = ColorSequence.new(activeColor)
+    trail.Lifetime = 0.35
+    trail.WidthScale = NumberSequence.new(0.5)
+    trail.FaceCamera = true
+    trail.Parent = ball
+
+    portalBall = ball
+
+    local speed = 260
+    local travelled = 0
+    local maxDistance = 1000
+    local lastPosition = ball.Position
+
+    portalBallConnection = RunService.Heartbeat:Connect(function(dt)
+        if not ball.Parent then
+            portalBallConnection:Disconnect()
+            portalBallConnection = nil
+            return
+        end
+
+        local step = direction * speed * dt
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances = {character, currentGun, ball}
+
+        local result = workspace:Raycast(lastPosition, step, params)
+        if result then
+            placePortalAt(result.Position, result.Normal)
+            clearPortalBall()
+            return
+        end
+
+        ball.Position = lastPosition + step
+        lastPosition = ball.Position
+        travelled = travelled + speed * dt
+
+        if travelled > maxDistance then
+            clearPortalBall()
+        end
+    end)
+end
+
+-- Searches around a target position for the nearest vertical wall surface.
+-- Returns a placement position + facing normal if one is found within range,
+-- otherwise nil (caller falls back to an in-air placement).
+local function findNearestWallPlacement(target, exclude)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = exclude or {}
+
+    local best
+    local bestDistance = math.huge
+
+    -- Sample a full circle of horizontal directions at several heights so a
+    -- wall is caught even if the target Y sits above (or below) the wall tops.
+    local heightOffsets = {0, -3, -6, 3}
+    for _, yOffset in ipairs(heightOffsets) do
+        local origin = target + Vector3.new(0, yOffset, 0)
+        for i = 0, 23 do
+            local angle = math.rad(i * 15)
+            local dir = Vector3.new(math.cos(angle), 0, math.sin(angle))
+            local result = workspace:Raycast(origin, dir * 60, params)
+            if result and math.abs(result.Normal.Y) < 0.75 then
+                local dist = (result.Position - target).Magnitude
+                if dist < bestDistance then
+                    bestDistance = dist
+                    best = result
+                end
+            end
+        end
+    end
+
+    if best then
+        return best.Position + best.Normal * 0.25, best.Normal
+    end
+
+    -- Fallback: locate the nearest solid part around the target with a region
+    -- query, then raycast toward it to grab its surface normal.
+    local parts = workspace:GetPartBoundsInBox(CFrame.new(target), Vector3.new(40, 20, 40), params)
+    local nearestPart
+    local nearestDist = math.huge
+    for _, part in ipairs(parts) do
+        if part.CanCollide then
+            local dist = (part.Position - target).Magnitude
+            if dist < nearestDist then
+                nearestDist = dist
+                nearestPart = part
+            end
+        end
+    end
+    if nearestPart then
+        local toPart = nearestPart.Position - target
+        local result = workspace:Raycast(target, toPart * 1.5, params)
+        if result then
+            return result.Position + result.Normal * 0.25, result.Normal
+        end
+    end
+
+    return nil
+end
+
+--============================================================
+-- COORDINATE HUD
+--============================================================
+local function createCoordinateHUD(gui)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.fromOffset(200, 88)
+    frame.Position = UDim2.new(1, -225, 1, -175)
+    frame.BackgroundColor3 = Color3.fromRGB(14, 14, 10)
+    frame.BackgroundTransparency = 0.12
+    frame.Visible = false
+    frame.Parent = gui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = frame
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = GOLD
+    stroke.Thickness = 1.5
+    stroke.Parent = frame
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -16, 0, 25)
+    title.Position = UDim2.fromOffset(8, 5)
+    title.BackgroundTransparency = 1
+    title.Text = "CURRENT POSITION"
+    title.TextColor3 = GOLD
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 12
+    title.Parent = frame
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -16, 0, 52)
+    label.Position = UDim2.fromOffset(8, 30)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.fromRGB(255, 250, 220)
+    label.Font = Enum.Font.Code
+    label.TextSize = 13
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextYAlignment = Enum.TextYAlignment.Top
+    label.Parent = frame
+
+    return frame, label
+end
+
+--============================================================
+-- MAIN GUI
+--============================================================
+local function createGUI(startHUD, stopHUD)
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "PortalGunGUI"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.Parent = player:WaitForChild("PlayerGui")
+    mainGui = gui
+
+    local main = Instance.new("Frame")
+    main.Name = "PortalMenu"
+    -- Increased window height to comfortably fit everything
+    main.Size = UDim2.fromOffset(390, 505)
+    main.Position = UDim2.fromScale(0.5, 0.5)
+    main.AnchorPoint = Vector2.new(0.5, 0.5)
+    main.BackgroundColor3 = Color3.fromRGB(15, 14, 12)
+    main.BackgroundTransparency = 0.04
+    main.Visible = false
+    main.Parent = gui
+    menu = main
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 16)
+    corner.Parent = main
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = GOLD
+    stroke.Thickness = 2
+    stroke.Parent = main
+
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -60, 0, 45)
+    title.Position = UDim2.fromOffset(15, 10)
+    title.BackgroundTransparency = 1
+    title.Text = "PORTAL GUN MENU"
+    title.TextColor3 = Color3.fromRGB(255, 240, 200)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 25
+    title.Parent = main
+
+    -- Close
+    local close = Instance.new("TextButton")
+    close.Size = UDim2.fromOffset(32, 32)
+    close.Position = UDim2.new(1, -43, 0, 12)
+    close.BackgroundTransparency = 1
+    close.Text = "×"
+    close.TextColor3 = Color3.fromRGB(180, 175, 160)
+    close.Font = Enum.Font.GothamBold
+    close.TextSize = 28
+    close.Parent = main
+
+    close.MouseButton1Click:Connect(function()
+        main.Visible = false
+    end)
+
+    local subtitle = Instance.new("TextLabel")
+    subtitle.Size = UDim2.new(1, -30, 0, 25)
+    subtitle.Position = UDim2.fromOffset(15, 48)
+    subtitle.BackgroundTransparency = 1
+    subtitle.Text = "Choose a destination"
+    subtitle.TextColor3 = Color3.fromRGB(160, 150, 130)
+    subtitle.Font = Enum.Font.Gotham
+    subtitle.TextSize = 14
+    subtitle.Parent = main
+
+    -- MODE BUTTONS
+    local modes = {}
+    local function makeModeButton(text, x)
+        local button = Instance.new("TextButton")
+        button.Size = UDim2.fromOffset(82, 32)
+        button.Position = UDim2.fromOffset(x, 75)
+        button.BackgroundColor3 = Color3.fromRGB(29, 27, 24)
+        button.Text = text
+        button.TextColor3 = Color3.fromRGB(190, 180, 160)
+        button.Font = Enum.Font.GothamBold
+        button.TextSize = 11
+        button.AutoButtonColor = false
+        button.Parent = main
+
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(0, 8)
+        c.Parent = button
+        return button
+    end
+
+    modes.Coordinates = makeModeButton("COORDS", 20)
+    modes.Player = makeModeButton("PLAYER", 106)
+    modes.Saved = makeModeButton("SAVED", 192)
+    modes.Settings = makeModeButton("SETTINGS", 278)
+
+    -- FIELD CREATOR
+    local function makeField(name, placeholder, position, size)
+        local box = Instance.new("TextBox")
+        box.Name = name
+        box.Size = size or UDim2.fromOffset(105, 50)
+        box.Position = position
+        box.BackgroundColor3 = Color3.fromRGB(29, 27, 24)
+        box.TextColor3 = Color3.fromRGB(255, 245, 220)
+        box.PlaceholderColor3 = Color3.fromRGB(120, 110, 95)
+        box.PlaceholderText = placeholder
+        box.Text = ""
+        box.Font = Enum.Font.GothamMedium
+        box.TextSize = 17
+        box.ClearTextOnFocus = false
+        box.Parent = main
+
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(0, 10)
+        c.Parent = box
+
+        local s = Instance.new("UIStroke")
+        s.Color = Color3.fromRGB(90, 80, 55)
+        s.Thickness = 1
+        s.Parent = box
+
+        return box
+    end
+
+    xBox = makeField("X", "X", UDim2.fromOffset(20, 115))
+    yBox = makeField("Y", "Y", UDim2.fromOffset(142, 115))
+    zBox = makeField("Z", "Z", UDim2.fromOffset(264, 115))
+
+    -- EXPANDED PLAYER INPUT BOX (Taller size for better visibility)
+    playerBox = makeField(
+        "PlayerName",
+        "Username / Display Name",
+        UDim2.fromOffset(30, 115),
+        UDim2.fromOffset(330, 58)
+    )
+    playerBox.Visible = false
+
+    -- SAVED LOCATION NAME FIELD (type a new name to save, or it fills in when you click a saved entry)
+    savedBox = makeField(
+        "SavedName",
+        "Location Name (save or select)",
+        UDim2.fromOffset(30, 115),
+        UDim2.fromOffset(330, 58)
+    )
+    savedBox.Visible = false
+
+    -- SAVE CURRENT COORDS BUTTON
+    local saveCoordsButton = Instance.new("TextButton")
+    saveCoordsButton.Name = "SaveCoordsButton"
+    saveCoordsButton.Size = UDim2.fromOffset(330, 36)
+    saveCoordsButton.Position = UDim2.fromOffset(30, 175)
+    saveCoordsButton.BackgroundColor3 = Color3.fromRGB(80, 70, 25)
+    saveCoordsButton.Text = "SAVE CURRENT COORDS"
+    saveCoordsButton.TextColor3 = Color3.fromRGB(255, 245, 220)
+    saveCoordsButton.Font = Enum.Font.GothamBold
+    saveCoordsButton.TextSize = 13
+    saveCoordsButton.AutoButtonColor = false
+    saveCoordsButton.Parent = main
+
+    local saveCorner = Instance.new("UICorner")
+    saveCorner.CornerRadius = UDim.new(0, 8)
+    saveCorner.Parent = saveCoordsButton
+
+    local saveStroke = Instance.new("UIStroke")
+    saveStroke.Color = GOLD
+    saveStroke.Thickness = 1
+    saveStroke.Parent = saveCoordsButton
+
+    saveCoordsButton.MouseButton1Click:Connect(function()
+        local character = getCharacter()
+        local root = getRoot(character)
+        if not root then
+            status.Text = "Character not found."
+            status.TextColor3 = Color3.fromRGB(255, 100, 100)
+            return
+        end
+        local pos = root.Position
+        xBox.Text = string.format("%.1f", pos.X)
+        yBox.Text = string.format("%.1f", pos.Y)
+        zBox.Text = string.format("%.1f", pos.Z)
+        status.Text = "Current coordinates saved!"
+        status.TextColor3 = isEvilMortyMode and GOLD or GREEN
+    end)
+
+    -- SAVE NAMED LOCATION BUTTON (stores your current position under the typed name)
+    local saveLocationButton = Instance.new("TextButton")
+    saveLocationButton.Name = "SaveLocationButton"
+    saveLocationButton.Size = UDim2.fromOffset(330, 44)
+    saveLocationButton.Position = UDim2.fromOffset(30, 178)
+    saveLocationButton.BackgroundColor3 = Color3.fromRGB(80, 70, 25)
+    saveLocationButton.Text = "SAVE CURRENT LOCATION AS..."
+    saveLocationButton.TextColor3 = Color3.fromRGB(255, 245, 220)
+    saveLocationButton.Font = Enum.Font.GothamBold
+    saveLocationButton.TextSize = 15
+    saveLocationButton.AutoButtonColor = false
+    saveLocationButton.Visible = false
+    saveLocationButton.Parent = main
+
+    local saveLocationCorner = Instance.new("UICorner")
+    saveLocationCorner.CornerRadius = UDim.new(0, 8)
+    saveLocationCorner.Parent = saveLocationButton
+
+    local saveLocationStroke = Instance.new("UIStroke")
+    saveLocationStroke.Color = GOLD
+    saveLocationStroke.Thickness = 1
+    saveLocationStroke.Parent = saveLocationButton
+
+    -- SAVED LOCATIONS LIST
+    local savedList = Instance.new("ScrollingFrame")
+    savedList.Name = "SavedList"
+    savedList.Size = UDim2.fromOffset(330, 104)
+    savedList.Position = UDim2.fromOffset(30, 226)
+    savedList.BackgroundColor3 = Color3.fromRGB(23, 21, 18)
+    savedList.BorderSizePixel = 0
+    savedList.ScrollBarThickness = 4
+    savedList.Visible = false
+    savedList.CanvasSize = UDim2.new()
+    savedList.Parent = main
+
+    local savedListLayout = Instance.new("UIListLayout")
+    savedListLayout.Padding = UDim.new(0, 4)
+    savedListLayout.Parent = savedList
+
+    local savedListPadding = Instance.new("UIPadding")
+    savedListPadding.PaddingTop = UDim.new(0, 4)
+    savedListPadding.PaddingLeft = UDim.new(0, 4)
+    savedListPadding.PaddingRight = UDim.new(0, 4)
+    savedListPadding.Parent = savedList
+
+    local function refreshSavedList()
+        for _, child in ipairs(savedList:GetChildren()) do
+            if child:IsA("Frame") and child.Name == "SavedRow" then
+                child:Destroy()
+            end
+        end
+
+        for index, entry in ipairs(savedLocations) do
+            local row = Instance.new("Frame")
+            row.Name = "SavedRow"
+            row.Size = UDim2.new(1, -8, 0, 42)
+            row.BackgroundTransparency = 1
+            row.Parent = savedList
+
+            local button = Instance.new("TextButton")
+            button.Size = UDim2.new(1, -34, 1, 0)
+            button.BackgroundColor3 = Color3.fromRGB(35, 32, 27)
+            button.TextColor3 = Color3.fromRGB(255, 240, 220)
+            button.Font = Enum.Font.Gotham
+            button.TextSize = 13
+            button.TextWrapped = true
+            button.TextXAlignment = Enum.TextXAlignment.Left
+            button.AutoButtonColor = false
+            button.Parent = row
+
+            local pos = entry.position
+            button.Text = string.format(
+                "  %s\n  X: %d  Y: %d  Z: %d",
+                entry.name,
+                math.floor(pos.X + 0.5),
+                math.floor(pos.Y + 0.5),
+                math.floor(pos.Z + 0.5)
+            )
+
+            local buttonCorner = Instance.new("UICorner")
+            buttonCorner.CornerRadius = UDim.new(0, 6)
+            buttonCorner.Parent = button
+
+            button.MouseButton1Click:Connect(function()
+                savedBox.Text = entry.name
+                status.Text = "Selected: " .. entry.name
+                status.TextColor3 = isEvilMortyMode and GOLD or GREEN
+            end)
+
+            local deleteButton = Instance.new("TextButton")
+            deleteButton.Size = UDim2.fromOffset(28, 42)
+            deleteButton.Position = UDim2.new(1, -28, 0, 0)
+            deleteButton.BackgroundColor3 = Color3.fromRGB(60, 30, 28)
+            deleteButton.Text = "×"
+            deleteButton.TextColor3 = Color3.fromRGB(255, 190, 180)
+            deleteButton.Font = Enum.Font.GothamBold
+            deleteButton.TextSize = 16
+            deleteButton.AutoButtonColor = false
+            deleteButton.Parent = row
+
+            local deleteCorner = Instance.new("UICorner")
+            deleteCorner.CornerRadius = UDim.new(0, 6)
+            deleteCorner.Parent = deleteButton
+
+            deleteButton.MouseButton1Click:Connect(function()
+                table.remove(savedLocations, index)
+                if savedBox.Text == entry.name then
+                    savedBox.Text = ""
+                end
+                status.Text = "Deleted: " .. entry.name
+                status.TextColor3 = Color3.fromRGB(255, 170, 160)
+                refreshSavedList()
+                persistSavedLocations()
+            end)
+        end
+
+        task.defer(function()
+            savedList.CanvasSize = UDim2.fromOffset(0, savedListLayout.AbsoluteContentSize.Y + 8)
+        end)
+    end
+
+    saveLocationButton.MouseButton1Click:Connect(function()
+        local name = savedBox.Text:match("^%s*(.-)%s*$")
+        if name == "" then
+            status.Text = "Type a name for this location first."
+            status.TextColor3 = Color3.fromRGB(255, 100, 100)
+            return
+        end
+
+        local character = getCharacter()
+        local root = getRoot(character)
+        if not root then
+            status.Text = "Character not found."
+            status.TextColor3 = Color3.fromRGB(255, 100, 100)
+            return
+        end
+
+        local existingIndex
+        for index, entry in ipairs(savedLocations) do
+            if string.lower(entry.name) == string.lower(name) then
+                existingIndex = index
+                break
+            end
+        end
+
+        if existingIndex then
+            savedLocations[existingIndex].position = root.Position
+        else
+            table.insert(savedLocations, {name = name, position = root.Position})
+        end
+
+        status.Text = "Saved location: " .. name
+        status.TextColor3 = isEvilMortyMode and GOLD or GREEN
+        refreshSavedList()
+        persistSavedLocations()
+    end)
+
+    -- EXPANDED PLAYER LIST (Taller height so names fit nicely)
+    local playerList = Instance.new("ScrollingFrame")
+    playerList.Name = "PlayerList"
+    playerList.Size = UDim2.fromOffset(330, 145)
+    playerList.Position = UDim2.fromOffset(30, 180)
+    playerList.BackgroundColor3 = Color3.fromRGB(23, 21, 18)
+    playerList.BorderSizePixel = 0
+    playerList.ScrollBarThickness = 4
+    playerList.Visible = false
+    playerList.CanvasSize = UDim2.new()
+    playerList.Parent = main
+
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.Padding = UDim.new(0, 4)
+    listLayout.Parent = playerList
+
+    local listPadding = Instance.new("UIPadding")
+    listPadding.PaddingTop = UDim.new(0, 4)
+    listPadding.PaddingLeft = UDim.new(0, 4)
+    listPadding.PaddingRight = UDim.new(0, 4)
+    listPadding.Parent = playerList
+
+    local playerListUpdateConnection
+
+    local function getPlayerCoordsText(p)
+        local character = p.Character
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        if not root then
+            return "no character"
+        end
+        local pos = root.Position
+        return string.format(
+            "X: %d  Y: %d  Z: %d",
+            math.floor(pos.X + 0.5),
+            math.floor(pos.Y + 0.5),
+            math.floor(pos.Z + 0.5)
+        )
+    end
+
+    local function refreshPlayerList()
+        for _, child in ipairs(playerList:GetChildren()) do
+            if child:IsA("TextButton") then
+                child:Destroy()
+            end
+        end
+        table.clear(playerListButtons)
+
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= player then
+                local button = Instance.new("TextButton")
+                button.Size = UDim2.new(1, -8, 0, 42)
+                button.BackgroundColor3 = Color3.fromRGB(35, 32, 27)
+                button.TextColor3 = Color3.fromRGB(255, 240, 220)
+                button.Font = Enum.Font.Gotham
+                button.TextSize = 13
+                button.TextWrapped = true
+                button.TextXAlignment = Enum.TextXAlignment.Left
+                button.Text = "  " .. p.DisplayName .. "  @" .. p.Name .. "\n  " .. getPlayerCoordsText(p)
+                button.AutoButtonColor = false
+                button.Parent = playerList
+
+                local c = Instance.new("UICorner")
+                c.CornerRadius = UDim.new(0, 6)
+                c.Parent = button
+
+                button.MouseButton1Click:Connect(function()
+                    playerBox.Text = p.Name
+                end)
+                playerListButtons[button] = p
+            end
+        end
+
+        task.defer(function()
+            playerList.CanvasSize = UDim2.fromOffset(0, listLayout.AbsoluteContentSize.Y + 8)
+        end)
+    end
+
+    local function startPlayerListUpdates()
+        if playerListUpdateConnection then
+            return
+        end
+        playerListUpdateConnection = RunService.Heartbeat:Connect(function()
+            for button, p in pairs(playerListButtons) do
+                if button.Parent and p.Parent then
+                    button.Text = "  " .. p.DisplayName .. "  @" .. p.Name .. "\n  " .. getPlayerCoordsText(p)
+                end
+            end
+        end)
+    end
+
+    local function stopPlayerListUpdates()
+        if playerListUpdateConnection then
+            playerListUpdateConnection:Disconnect()
+            playerListUpdateConnection = nil
+        end
+    end
+
+    Players.PlayerAdded:Connect(refreshPlayerList)
+    Players.PlayerRemoving:Connect(refreshPlayerList)
+
+    -- STATUS (Positioned safely above the action buttons)
+    status = Instance.new("TextLabel")
+    status.Size = UDim2.new(1, -60, 0, 30)
+    status.Position = UDim2.fromOffset(30, 335)
+    status.BackgroundTransparency = 1
+    status.Text = "Enter coordinates or choose a player."
+    status.TextColor3 = Color3.fromRGB(140, 130, 110)
+    status.Font = Enum.Font.Gotham
+    status.TextSize = 13
+    status.TextWrapped = true
+    status.Parent = main
+
+    -- DEPLOY BUTTON
+    local deployButton = Instance.new("TextButton")
+    deployButton.Size = UDim2.new(1, -60, 0, 42)
+    deployButton.Position = UDim2.fromOffset(30, 372)
+    deployButton.BackgroundColor3 = Color3.fromRGB(150, 120, 25)
+    deployButton.Text = "OPEN PORTAL"
+    deployButton.TextColor3 = Color3.fromRGB(255, 245, 230)
+    deployButton.Font = Enum.Font.GothamBold
+    deployButton.TextSize = 16
+    deployButton.AutoButtonColor = false
+    deployButton.Parent = main
+
+    local deployCorner = Instance.new("UICorner")
+    deployCorner.CornerRadius = UDim.new(0, 10)
+    deployCorner.Parent = deployButton
+
+    -- TOGGLE THEME BUTTON (Moved to the absolute bottom of the frame)
+    toggleColorButton = Instance.new("TextButton")
+    toggleColorButton.Name = "ToggleColorButton"
+    toggleColorButton.Size = UDim2.new(1, -60, 0, 38)
+    toggleColorButton.Position = UDim2.fromOffset(30, 424)
+    toggleColorButton.BackgroundColor3 = Color3.fromRGB(40, 38, 33)
+    toggleColorButton.Text = "THEME: EVIL MORTY (GOLD)"
+    toggleColorButton.TextColor3 = Color3.fromRGB(255, 245, 220)
+    toggleColorButton.Font = Enum.Font.GothamBold
+    toggleColorButton.TextSize = 13
+    toggleColorButton.AutoButtonColor = false
+    toggleColorButton.Parent = main
+
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(0, 8)
+    toggleCorner.Parent = toggleColorButton
+
+    toggleStroke = Instance.new("UIStroke")
+    toggleStroke.Color = GOLD
+    toggleStroke.Thickness = 1.5
+    toggleStroke.Parent = toggleColorButton
+
+    toggleColorButton.MouseButton1Click:Connect(function()
+        isEvilMortyMode = not isEvilMortyMode
+        local activeColor = isEvilMortyMode and GOLD or GREEN
+        toggleStroke.Color = activeColor
+
+        if isEvilMortyMode then
+            toggleColorButton.Text = "THEME: EVIL MORTY (GOLD)"
+            status.Text = "Switched to Evil Morty theme!"
+            status.TextColor3 = GOLD
+        else
+            toggleColorButton.Text = "THEME: RICK (GREEN)"
+            status.Text = "Switched to Rick theme!"
+            status.TextColor3 = GREEN
+        end
+
+        if currentGun then
+            currentGun:Destroy()
+        end
+        currentGun = createPortalGun(startHUD, stopHUD)
+    end)
+
+    -- SETTINGS PANEL
+    local settingsPanel = Instance.new("Frame")
+    settingsPanel.Name = "SettingsPanel"
+    settingsPanel.Size = UDim2.fromOffset(330, 150)
+    settingsPanel.Position = UDim2.fromOffset(30, 115)
+    settingsPanel.BackgroundColor3 = Color3.fromRGB(23, 21, 18)
+    settingsPanel.Visible = false
+    settingsPanel.Parent = main
+
+    local settingsCorner = Instance.new("UICorner")
+    settingsCorner.CornerRadius = UDim.new(0, 10)
+    settingsCorner.Parent = settingsPanel
+
+    -- SHOOT FROM GUN TOGGLE
+    local shootGunButton = Instance.new("TextButton")
+    shootGunButton.Name = "ShootFromGunToggle"
+    shootGunButton.Size = UDim2.new(1, -20, 0, 44)
+    shootGunButton.Position = UDim2.fromOffset(10, 12)
+    shootGunButton.BackgroundColor3 = Color3.fromRGB(40, 38, 33)
+    shootGunButton.TextColor3 = Color3.fromRGB(255, 245, 220)
+    shootGunButton.Font = Enum.Font.GothamBold
+    shootGunButton.TextSize = 13
+    shootGunButton.AutoButtonColor = false
+    shootGunButton.Text = "SHOOT FROM: GUN"
+    shootGunButton.Parent = settingsPanel
+
+    local shootGunCorner = Instance.new("UICorner")
+    shootGunCorner.CornerRadius = UDim.new(0, 8)
+    shootGunCorner.Parent = shootGunButton
+
+    local shootGunStroke = Instance.new("UIStroke")
+    shootGunStroke.Color = GOLD
+    shootGunStroke.Thickness = 1.5
+    shootGunStroke.Parent = shootGunButton
+
+    local function refreshShootGunButton()
+        if shootFromGun then
+            shootGunButton.Text = "SHOOT FROM: GUN"
+            shootGunStroke.Color = GOLD
+        else
+            shootGunButton.Text = "SHOOT FROM: CAMERA"
+            shootGunStroke.Color = GREEN
+        end
+    end
+    refreshShootGunButton()
+
+    shootGunButton.MouseButton1Click:Connect(function()
+        shootFromGun = not shootFromGun
+        refreshShootGunButton()
+        status.Text = shootFromGun and "Shooting from the gun." or "Shooting from the camera."
+        status.TextColor3 = isEvilMortyMode and GOLD or GREEN
+    end)
+
+    -- MODE SWITCHING
+    local function updateMode(mode)
+        teleportMode = mode
+        local coordinates = mode == "Coordinates"
+        local playerMode = mode == "Player"
+        local savedMode = mode == "Saved"
+        local settingsMode = mode == "Settings"
+
+        xBox.Visible = coordinates
+        yBox.Visible = coordinates
+        zBox.Visible = coordinates
+        saveCoordsButton.Visible = coordinates
+
+        playerBox.Visible = playerMode
+        playerList.Visible = playerMode
+
+        savedBox.Visible = savedMode
+        saveLocationButton.Visible = savedMode
+        savedList.Visible = savedMode
+
+        settingsPanel.Visible = settingsMode
+
+        modes.Coordinates.BackgroundColor3 = coordinates and Color3.fromRGB(150, 120, 25) or Color3.fromRGB(29, 27, 24)
+        modes.Player.BackgroundColor3 = playerMode and Color3.fromRGB(150, 120, 25) or Color3.fromRGB(29, 27, 24)
+        modes.Saved.BackgroundColor3 = savedMode and Color3.fromRGB(150, 120, 25) or Color3.fromRGB(29, 27, 24)
+        modes.Settings.BackgroundColor3 = settingsMode and Color3.fromRGB(150, 120, 25) or Color3.fromRGB(29, 27, 24)
+
+        if coordinates then
+            subtitle.Text = "Enter destination coordinates"
+            status.Text = "Enter X, Y and Z or click save coords"
+        elseif playerMode then
+            subtitle.Text = "Choose a player"
+            status.Text = "Select a player below"
+            refreshPlayerList()
+            startPlayerListUpdates()
+        elseif settingsMode then
+            subtitle.Text = "Settings"
+            status.Text = "Adjust how the portal gun behaves."
+        else
+            subtitle.Text = "Save or select a saved location"
+            status.Text = "Type a name + save, or click a saved spot below"
+            refreshSavedList()
+        end
+
+        if not playerMode then
+            stopPlayerListUpdates()
+        end
+    end
+
+    modes.Coordinates.MouseButton1Click:Connect(function()
+        updateMode("Coordinates")
+    end)
+    modes.Player.MouseButton1Click:Connect(function()
+        updateMode("Player")
+    end)
+    modes.Saved.MouseButton1Click:Connect(function()
+        updateMode("Saved")
+    end)
+    modes.Settings.MouseButton1Click:Connect(function()
+        updateMode("Settings")
+    end)
+
+    -- DEPLOY ACTION
+    deployButton.MouseButton1Click:Connect(function()
+        local character = getCharacter()
+        local root = getRoot(character)
+        local activeColor = isEvilMortyMode and GOLD or GREEN
+
+        if not root then
+            return
+        end
+
+        if teleportMode == "Coordinates" then
+            local x = tonumber(xBox.Text)
+            local y = tonumber(yBox.Text)
+            local z = tonumber(zBox.Text)
+
+            if not x or not y or not z then
+                status.Text = "Invalid coordinates."
+                status.TextColor3 = Color3.fromRGB(255, 100, 100)
+                return
+            end
+
+            local target = Vector3.new(x, y, z) + Vector3.new(0, 4, 0)
+            local destinationFacing = Vector3.new(0, 0, -1)
+
+            -- Prefer placing the portal on the nearest wall, else float in air.
+            local wallPos, wallFacing = findNearestWallPlacement(target, {character, currentGun})
+            if wallPos then
+                target = wallPos
+                destinationFacing = wallFacing
+            end
+
+            local entrancePosition = root.Position + root.CFrame.LookVector * PORTAL_DISTANCE
+            local entranceFacing = -root.CFrame.LookVector
+
+            -- Where the return portal actually spawns: in front of you
+            -- normally, or flat beneath your feet if you're airborne.
+            local portalPlacementPosition, entrancePortalFacing, entranceUpVector =
+                getEntrancePlacement(root, character, root.CFrame.LookVector)
+
+            local destinationCFrame = CFrame.lookAt(
+                target + destinationFacing * 3,
+                target + destinationFacing * 4
+            ) * CFrame.Angles(0, math.rad(180), 0)
+
+            local entranceCFrame = CFrame.lookAt(
+                entrancePosition + entranceFacing * 3,
+                entrancePosition + entranceFacing * 4
+            ) * CFrame.Angles(0, math.rad(180), 0)
+
+            destroyPortal(currentPortal)
+            destroyPortal(returnPortal)
+
+            currentPortal = createPortal(target, destinationFacing, "DESTINATION", entranceCFrame, false)
+            returnPortal = createPortal(portalPlacementPosition, entrancePortalFacing, "GO TO PORTAL", destinationCFrame, true, entranceUpVector)
+
+            status.Text = string.format("Portal → %.1f, %.1f, %.1f", x, y, z)
+            status.TextColor3 = activeColor
+            main.Visible = false
+
+        elseif teleportMode == "Player" then
+            local name = playerBox.Text:match("^%s*(.-)%s*$")
+            if name == "" then
+                status.Text = "Enter a player."
+                status.TextColor3 = Color3.fromRGB(255, 100, 100)
+                return
+            end
+
+            local target
+            for _, p in ipairs(Players:GetPlayers()) do
+                if string.lower(p.Name) == string.lower(name) then
+                    target = p
+                    break
+                end
+            end
+
+            if not target then
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if string.lower(p.DisplayName) == string.lower(name) then
+                        target = p
+                        break
+                    end
+                end
+            end
+
+            if not target then
+                status.Text = "Player not found."
+                status.TextColor3 = Color3.fromRGB(255, 100, 100)
+                return
+            end
+
+            if target == player then
+                status.Text = "You cannot target yourself."
+                status.TextColor3 = Color3.fromRGB(255, 100, 100)
+                return
+            end
+
+            local targetRoot = getRoot(target.Character)
+            if not targetRoot then
+                status.Text = "Player is not spawned."
+                status.TextColor3 = Color3.fromRGB(255, 100, 100)
+                return
+            end
+
+            local entrancePosition = root.Position + root.CFrame.LookVector * PORTAL_DISTANCE
+            local entranceFacing = -root.CFrame.LookVector
+
+            -- Where the return portal actually spawns: in front of you
+            -- normally, or flat beneath your feet if you're airborne.
+            local portalPlacementPosition, entrancePortalFacing, entranceUpVector =
+                getEntrancePlacement(root, character, root.CFrame.LookVector)
+
+            local destinationPosition = targetRoot.Position
+            local destinationFacing = targetRoot.CFrame.LookVector
+
+            -- Prefer placing the portal on the nearest wall, else float in air.
+            local wallPos, wallFacing = findNearestWallPlacement(destinationPosition, {character, currentGun, target.Character})
+            if wallPos then
+                destinationPosition = wallPos
+                destinationFacing = wallFacing
+            end
+
+            local destinationCFrame = CFrame.lookAt(
+                destinationPosition + destinationFacing * 3,
+                destinationPosition + destinationFacing * 4
+            ) * CFrame.Angles(0, math.rad(180), 0)
+
+            local entranceCFrame = CFrame.lookAt(
+                entrancePosition + entranceFacing * 3,
+                entrancePosition + entranceFacing * 4
+            ) * CFrame.Angles(0, math.rad(180), 0)
+
+            destroyPortal(currentPortal)
+            destroyPortal(returnPortal)
+
+            currentPortal = createPortal(destinationPosition, destinationFacing, "DESTINATION → " .. target.Name, entranceCFrame, false)
+            returnPortal = createPortal(portalPlacementPosition, entrancePortalFacing, "GO TO " .. target.Name, destinationCFrame, true, entranceUpVector)
+
+            status.Text = "Portal → " .. target.Name
+            status.TextColor3 = activeColor
+            main.Visible = false
+
+        elseif teleportMode == "Saved" then
+            local name = savedBox.Text:match("^%s*(.-)%s*$")
+            if name == "" then
+                status.Text = "Enter or select a saved location."
+                status.TextColor3 = Color3.fromRGB(255, 100, 100)
+                return
+            end
+
+            local targetEntry
+            for _, entry in ipairs(savedLocations) do
+                if string.lower(entry.name) == string.lower(name) then
+                    targetEntry = entry
+                    break
+                end
+            end
+
+            if not targetEntry then
+                status.Text = "Saved location not found."
+                status.TextColor3 = Color3.fromRGB(255, 100, 100)
+                return
+            end
+
+            local target = targetEntry.position + Vector3.new(0, 4, 0)
+            local destinationFacing = Vector3.new(0, 0, -1)
+
+            -- Prefer placing the portal on the nearest wall, else float in air.
+            local wallPos, wallFacing = findNearestWallPlacement(target, {character, currentGun})
+            if wallPos then
+                target = wallPos
+                destinationFacing = wallFacing
+            end
+
+            local entrancePosition = root.Position + root.CFrame.LookVector * PORTAL_DISTANCE
+            local entranceFacing = -root.CFrame.LookVector
+
+            -- Where the return portal actually spawns: in front of you
+            -- normally, or flat beneath your feet if you're airborne.
+            local portalPlacementPosition, entrancePortalFacing, entranceUpVector =
+                getEntrancePlacement(root, character, root.CFrame.LookVector)
+
+            local destinationCFrame = CFrame.lookAt(
+                target + destinationFacing * 3,
+                target + destinationFacing * 4
+            ) * CFrame.Angles(0, math.rad(180), 0)
+
+            local entranceCFrame = CFrame.lookAt(
+                entrancePosition + entranceFacing * 3,
+                entrancePosition + entranceFacing * 4
+            ) * CFrame.Angles(0, math.rad(180), 0)
+
+            destroyPortal(currentPortal)
+            destroyPortal(returnPortal)
+
+            currentPortal = createPortal(target, destinationFacing, "DESTINATION → " .. targetEntry.name, entranceCFrame, false)
+            returnPortal = createPortal(portalPlacementPosition, entrancePortalFacing, "GO TO " .. targetEntry.name, destinationCFrame, true, entranceUpVector)
+
+            status.Text = "Portal → " .. targetEntry.name
+            status.TextColor3 = activeColor
+            main.Visible = false
+        end
+    end)
+
+    updateMode("Coordinates")
+    return gui, main
+end
+
+--============================================================
+-- PORTAL GUN BUILDER
+--============================================================
+createPortalGun = function(startHUD, stopHUD)
+    local activeColor = isEvilMortyMode and GOLD or GREEN
+
+    local tool = Instance.new("Tool")
+    tool.Name = isEvilMortyMode and "Evil Morty Portal Gun" or "Rick Portal Gun"
+    tool.TextureId = "rbxassetid://92546471003887"
+    tool.RequiresHandle = true
+    tool.CanBeDropped = false
+    tool.ToolTip = "LMB = Menu | MMB = Shoot Portal"
+
+    local handle = Instance.new("Part")
+    handle.Name = "Handle"
+    handle.Size = Vector3.new(0.72, 2.35, 0.72)
+    handle.Color = BODY_DARK
+    handle.Material = Enum.Material.SmoothPlastic
+    handle.CanCollide = false
+    handle.CanTouch = false
+    handle.CanQuery = false
+    handle.Massless = true
+    handle.CastShadow = false
+    handle.Parent = tool
+
+    tool.Grip = CFrame.new(0, -0.05, -0.15) * CFrame.Angles(0, math.rad(90), 0)
+
+    local function addPart(name, size, color, offset, rotation)
+        local part = Instance.new("Part")
+        part.Name = name
+        part.Size = size
+        part.Color = color
+        part.Material = Enum.Material.SmoothPlastic
+        part.CanCollide = false
+        part.CanTouch = false
+        part.CanQuery = false
+        part.Massless = true
+        part.CastShadow = false
+        part.CFrame = handle.CFrame * CFrame.new(offset) * (rotation or CFrame.new())
+        part.Parent = tool
+
+        local weld = Instance.new("WeldConstraint")
+        weld.Part0 = handle
+        weld.Part1 = part
+        weld.Parent = part
+        return part
+    end
+
+    addPart("MainBody", Vector3.new(3.6, 0.75, 2.1), BODY_COLOR, Vector3.new(-1.55, 1.4, 0))
+    addPart("BottomBody", Vector3.new(3.25, 0.18, 1.8), Color3.fromRGB(90, 92, 90), Vector3.new(-1.55, 0.97, 0))
+    addPart("FrontPanel", Vector3.new(0.15, 0.62, 1.75), Color3.fromRGB(65, 67, 65), Vector3.new(-3.37, 1.4, 0))
+
+    for i = -1, 1 do
+        local emitter = Instance.new("Part")
+        emitter.Name = "GoldEmitter"
+        emitter.Shape = Enum.PartType.Cylinder
+        emitter.Size = Vector3.new(0.16, 0.43, 0.43)
+        emitter.Color = activeColor
+        emitter.Material = Enum.Material.Neon
+        emitter.CanCollide = false
+        emitter.CanTouch = false
+        emitter.CanQuery = false
+        emitter.Massless = true
+        emitter.CastShadow = false
+        emitter.CFrame = handle.CFrame * CFrame.new(-3.46, 1.4, i * 0.55) * CFrame.Angles(0, math.rad(90), 0)
+        emitter.Parent = tool
+
+        local weld = Instance.new("WeldConstraint")
+        weld.Part0 = handle
+        weld.Part1 = emitter
+        weld.Parent = emitter
+
+        local light = Instance.new("PointLight")
+        light.Color = activeColor
+        light.Brightness = 1.5
+        light.Range = 4
+        light.Parent = emitter
+    end
+
+    addPart("TopPlate", Vector3.new(2.9, 0.12, 1.75), Color3.fromRGB(170, 170, 165), Vector3.new(-1.4, 1.83, 0))
+
+    local redPanel = addPart("RedPanel", Vector3.new(0.9, 0.08, 0.62), Color3.fromRGB(210, 45, 45), Vector3.new(-0.65, 1.93, 0))
+    redPanel.Material = Enum.Material.Neon
+
+    local redLight = Instance.new("PointLight")
+    redLight.Color = Color3.fromRGB(255, 40, 40)
+    redLight.Brightness = 0.5
+    redLight.Range = 3
+    redLight.Parent = redPanel
+
+    -- CHAMBER
+    local chamber = Instance.new("Part")
+    chamber.Name = "Chamber"
+    chamber.Shape = Enum.PartType.Cylinder
+    chamber.Size = Vector3.new(0.35, 1.05, 1.05)
+    chamber.Color = Color3.fromRGB(190, 190, 185)
+    chamber.Material = Enum.Material.SmoothPlastic
+    chamber.CanCollide = false
+    chamber.CanTouch = false
+    chamber.CanQuery = false
+    chamber.Massless = true
+    chamber.CastShadow = false
+    chamber.CFrame = handle.CFrame * CFrame.new(-2.2, 2.2, 0) * CFrame.Angles(0, 0, math.rad(90))
+    chamber.Parent = tool
+
+    local chamberWeld = Instance.new("WeldConstraint")
+    chamberWeld.Part0 = handle
+    chamberWeld.Part1 = chamber
+    chamberWeld.Parent = chamber
+
+    local core = Instance.new("Part")
+    core.Name = "PortalCore"
+    core.Shape = Enum.PartType.Ball
+    core.Size = Vector3.new(0.65, 0.85, 0.65)
+    core.Color = activeColor
+    core.Material = Enum.Material.Neon
+    core.Transparency = 0.08
+    core.CanCollide = false
+    core.CanTouch = false
+    core.CanQuery = false
+    core.Massless = true
+    core.CastShadow = false
+    core.CFrame = handle.CFrame * CFrame.new(-2.2, 2.97, 0)
+    core.Parent = tool
+    corePart = core
+
+    local coreWeld = Instance.new("WeldConstraint")
+    coreWeld.Part0 = handle
+    coreWeld.Part1 = core
+    coreWeld.Parent = core
+
+    local coreLight = Instance.new("PointLight")
+    coreLight.Color = activeColor
+    coreLight.Brightness = 3
+    coreLight.Range = 7
+    coreLight.Parent = core
+    coreLightRef = coreLight
+
+    -- GRIP
+    addPart("GripBottom", Vector3.new(0.82, 0.65, 0.82), Color3.fromRGB(48, 50, 48), Vector3.new(0.35, -1, 0), CFrame.Angles(0, 0, math.rad(-18)))
+    addPart("GripTop", Vector3.new(0.85, 0.75, 0.85), BODY_DARK, Vector3.new(-0.4, 0.8, 0), CFrame.Angles(0, 0, math.rad(-18)))
+    addPart("GripInsert", Vector3.new(0.5, 1.7, 0.75), Color3.fromRGB(35, 37, 35), Vector3.new(0.02, 0, -0.38), CFrame.Angles(0, 0, math.rad(-18)))
+    addPart("GripLight", Vector3.new(0.08, 1.1, 0.2), activeColor, Vector3.new(-0.35, 0.1, -0.43), CFrame.Angles(0, 0, math.rad(-18)))
+
+    if GUN_SCALE ~= 1 then
+        local originalCFrame = handle.CFrame
+        local parts = {}
+        for _, object in ipairs(tool:GetChildren()) do
+            if object:IsA("BasePart") then
+                table.insert(parts, object)
+            end
+        end
+        for _, part in ipairs(parts) do
+            local relative = originalCFrame:ToObjectSpace(part.CFrame)
+            local position = relative.Position
+            local rotation = relative - position
+            part.Size *= GUN_SCALE
+            part.CFrame = originalCFrame * CFrame.new(position * GUN_SCALE) * rotation
+        end
+    end
+
+    tool.Equipped:Connect(function()
+        if startHUD then startHUD() end
+        if gunAnimationConnection then
+            gunAnimationConnection:Disconnect()
+        end
+        gunAnimationConnection = RunService.RenderStepped:Connect(function()
+            if not corePart or not corePart.Parent then
+                return
+            end
+            local pulse = 1 + math.sin(os.clock() * 5) * 0.12
+            local baseSize = Vector3.new(0.65, 0.85, 0.65) * GUN_SCALE
+            corePart.Size = baseSize * pulse
+            if coreLightRef then
+                coreLightRef.Brightness = 3 + math.sin(os.clock() * 5)
+            end
+        end)
+    end)
+
+    tool.Unequipped:Connect(function()
+        if stopHUD then stopHUD() end
+        if gunAnimationConnection then
+            gunAnimationConnection:Disconnect()
+            gunAnimationConnection = nil
+        end
+        if menu then
+            menu.Visible = false
+        end
+    end)
+
+    tool.Activated:Connect(function()
+        if menu then
+            menu.Visible = not menu.Visible
+        end
+    end)
+
+    tool.Equipped:Connect(function()
+        local middleConnection
+        middleConnection = UserInputService.InputBegan:Connect(function(input, processed)
+            if processed then
+                return
+            end
+            if input.UserInputType == Enum.UserInputType.MouseButton3 then
+                if currentGun == tool then
+                    shootPortalAtCursor()
+                end
+            elseif input.KeyCode == Enum.KeyCode.X then
+                if currentGun == tool then
+                    removeAllPortals()
+                end
+            end
+        end)
+
+        tool.Unequipped:Connect(function()
+            if middleConnection then
+                middleConnection:Disconnect()
+                middleConnection = nil
+            end
+        end)
+    end)
+
+    tool.Parent = backpack
+    return tool
+end
+
+--============================================================
+-- INITIALIZATION
+--============================================================
+local coordinateFrame, coordinateLabel
+local function startHUD()
+    if coordinateFrame then
+        coordinateFrame.Visible = true
+    end
+    if coordinateConnection then
+        coordinateConnection:Disconnect()
+    end
+    coordinateConnection = RunService.RenderStepped:Connect(function()
+        local root = getRoot()
+        if not root then
+            return
+        end
+        local p = root.Position
+        coordinateLabel.Text = string.format("X: %.1f\nY: %.1f\nZ: %.1f", p.X, p.Y, p.Z)
+    end)
+end
+
+local function stopHUD()
+    if coordinateFrame then
+        coordinateFrame.Visible = false
+    end
+    if coordinateConnection then
+        coordinateConnection:Disconnect()
+        coordinateConnection = nil
+    end
+end
+
+coordinateFrame, coordinateLabel = createCoordinateHUD(createGUI(startHUD, stopHUD))
+currentGun = createPortalGun(startHUD, stopHUD)
+
+player.CharacterAdded:Connect(function()
+    destroyPortal(currentPortal)
+    destroyPortal(returnPortal)
+    currentPortal = nil
+    returnPortal = nil
+    clearPortalConnections()
+    task.wait(1)
+    if currentGun then
+        currentGun:Destroy()
+    end
+    currentGun = createPortalGun(startHUD, stopHUD)
+end)
