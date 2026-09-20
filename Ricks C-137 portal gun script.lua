@@ -33,10 +33,14 @@ local GUN_SCALE = 0.4
 local PORTAL_LIFETIME = 15
 local PORTAL_DISTANCE = 7
 local PORTAL_TELEPORT_COOLDOWN = 0.8
+local WALL_SEARCH_RADIUS = 10 -- only snap a portal to a wall within this many studs
 local ENTRANCE_AIR_DROP_OFFSET = 3 -- studs below your feet the "catch" portal spawns when airborne
 
 local portalTeleportLocked = false
 local teleportMode = "Coordinates"
+local shootFromGun = true
+local shootBall = true
+local placeOnWall = true
 local currentGun
 local mainGui
 local menu
@@ -60,6 +64,23 @@ local toggleColorButton
 local toggleStroke
 local corePart
 local coreLightRef
+local portalBall
+local portalBallConnection
+local activePortals = {}
+local snapToWall
+
+-- Disarms every currently active portal. A disarmed portal will not teleport
+-- you until you step back out of it (re-armed via TouchEnded).
+local function disarmAllPortals()
+    for i = #activePortals, 1, -1 do
+        local entry = activePortals[i]
+        if entry.model.Parent then
+            entry.disarm()
+        else
+            table.remove(activePortals, i)
+        end
+    end
+end
 
 -- Forward declarations
 local updateToolTheme
@@ -360,7 +381,9 @@ local function createPortal(position, facing, labelText, targetCFrame, isReturn,
         local ring = Instance.new("Part")
         ring.Name = "EnergyRing"
         ring.Shape = Enum.PartType.Cylinder
-        ring.Size = Vector3.new(0.08, 6 + i * 0.55, 6 + i * 0.55)
+        local ringBase = 6 + i * 0.55
+        ring.Size = Vector3.new(0.08, ringBase, ringBase)
+        ring:SetAttribute("BaseRadius", ringBase)
         ring.CFrame = portalCFrame * CFrame.Angles(math.rad(90), 0, math.rad(i * 45))
         ring.Color = activeColor
         ring.Material = Enum.Material.Neon
@@ -393,6 +416,7 @@ local function createPortal(position, facing, labelText, targetCFrame, isReturn,
 
     -- Animation
     local startTime = os.clock()
+    local GROWTH_DURATION = 0.35
     local animationConnection
     animationConnection = RunService.RenderStepped:Connect(function()
         if not model.Parent then
@@ -400,23 +424,42 @@ local function createPortal(position, facing, labelText, targetCFrame, isReturn,
             return
         end
         local elapsed = os.clock() - startTime
+
+        -- Portal rapidly grows from tiny to full size, then idles pulsing.
+        local growth = math.max(0.02, math.min(1, elapsed / GROWTH_DURATION))
+        growth = 1 - (1 - growth) ^ 3
+
         local pulse = 1 + math.sin(elapsed * 5) * 0.06
-        portal.Size = Vector3.new(7 * pulse, 10 * pulse, 0.4)
+        local portalScale = pulse * growth
+        portal.Size = Vector3.new(7 * portalScale, 10 * portalScale, 0.4)
+        inner.Size = Vector3.new(6.2 * portalScale, 9.2 * portalScale, 0.15)
 
         for _, object in ipairs(model:GetChildren()) do
             if object.Name == "EnergyRing" then
-                local idx = tonumber(object.Name) or 1
                 object.CFrame = portal.CFrame * CFrame.Angles(math.rad(90), elapsed * 0.8, math.rad(45))
+                local base = object:GetAttribute("BaseRadius") or 6
+                object.Size = Vector3.new(0.08, base * portalScale, base * portalScale)
             end
         end
     end)
     table.insert(portalConnections, animationConnection)
 
     -- TELEPORT
-    local debounce = false
+    -- Each portal is "armed" and can only fire once the player is standing on
+    -- it. After a teleport every portal is disarmed; a portal only re-arms
+    -- once the player steps back out of it (so no instant bouncing).
+    local armed = true
+    local entry = {
+        model = model,
+        disarm = function()
+            armed = false
+        end,
+    }
+    table.insert(activePortals, entry)
+
     local touchConnection
     touchConnection = portal.Touched:Connect(function(hit)
-        if debounce or portalTeleportLocked then
+        if not armed then
             return
         end
         local character = getCharacter()
@@ -428,33 +471,49 @@ local function createPortal(position, facing, labelText, targetCFrame, isReturn,
             return
         end
 
-        debounce = true
-        portalTeleportLocked = true
+        armed = false
+        disarmAllPortals()
 
         if isReturn then
             if targetCFrame then
                 teleportPlayerTo(targetCFrame)
             end
-            task.delay(PORTAL_TELEPORT_COOLDOWN, function()
-                debounce = false
-                portalTeleportLocked = false
-            end)
-            return
-        end
-
-        if targetCFrame then
+        elseif targetCFrame then
             root.CFrame = targetCFrame
             root.AssemblyLinearVelocity = Vector3.zero
             root.AssemblyAngularVelocity = Vector3.zero
             flipPortalFacing(returnPortal)
         end
-
-        task.delay(PORTAL_TELEPORT_COOLDOWN, function()
-            debounce = false
-            portalTeleportLocked = false
-        end)
     end)
     table.insert(portalConnections, touchConnection)
+
+    -- Re-arm this portal only once the player has fully stepped out of it.
+    local touchEndConnection
+    touchEndConnection = portal.TouchEnded:Connect(function(hit)
+        local character = getCharacter()
+        if not character then
+            return
+        end
+        if not hit:IsDescendantOf(character) then
+            return
+        end
+        task.wait(0)
+        local characterNow = getCharacter()
+        if not characterNow then
+            return
+        end
+        local stillInside = false
+        for _, touching in ipairs(portal:GetTouchingParts()) do
+            if touching:IsDescendantOf(characterNow) then
+                stillInside = true
+                break
+            end
+        end
+        if not stillInside then
+            armed = true
+        end
+    end)
+    table.insert(portalConnections, touchEndConnection)
 
     task.delay(PORTAL_LIFETIME, function()
         if model.Parent then
@@ -525,30 +584,27 @@ local function computeExitCFrame(position, facing)
     return CFrame.lookAt(position, position + horizontal, Vector3.new(0, 1, 0))
 end
 
-local function shootPortalAtCursor()
+-- Removes any in-flight portal ball.
+local function clearPortalBall()
+    if portalBall then
+        portalBall:Destroy()
+        portalBall = nil
+    end
+    if portalBallConnection then
+        portalBallConnection:Disconnect()
+        portalBallConnection = nil
+    end
+end
+
+-- Places the destination portal where the ball hit, plus the return portal
+-- near the player.
+local function placePortalAt(hitPosition, normal)
     local character = getCharacter()
     local root = getRoot(character)
     if not character or not root then
         return
     end
-    local camera = workspace.CurrentCamera
-    if not camera then
-        return
-    end
 
-    local mousePosition = UserInputService:GetMouseLocation()
-    local ray = camera:ViewportPointToRay(mousePosition.X, mousePosition.Y)
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {character, currentGun}
-
-    local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
-    if not result then
-        return
-    end
-
-    local hitPosition = result.Position
-    local normal = result.Normal
     local portalPosition = hitPosition + normal * 0.25
     local facing = normal
 
@@ -567,7 +623,273 @@ local function shootPortalAtCursor()
     destroyPortal(returnPortal)
 
     currentPortal = createPortal(portalPosition, facing, "DESTINATION", entranceCFrame, false)
+    portalPlacementPosition, entrancePortalFacing, entranceUpVector =
+        snapToWall(portalPlacementPosition, entrancePortalFacing, entranceUpVector, {character, currentGun}, root.CFrame.LookVector)
     returnPortal = createPortal(portalPlacementPosition, entrancePortalFacing, "GO TO PORTAL", destinationCFrame, true, entranceUpVector)
+end
+
+-- Shoots a glowing ball (tinted the active theme color) toward where the
+-- cursor is pointing. When the ball hits something, the portal is placed
+-- at that spot.
+local function shootPortalAtCursor()
+    local character = getCharacter()
+    local root = getRoot(character)
+    if not character or not root then
+        return
+    end
+    local camera = workspace.CurrentCamera
+    if not camera then
+        return
+    end
+
+    local mousePosition = UserInputService:GetMouseLocation()
+    local ray = camera:ViewportPointToRay(mousePosition.X, mousePosition.Y)
+    local direction = ray.Direction.Unit
+
+    -- When ball shooting is disabled, place the portal straight on the cursor.
+    if not shootBall then
+        clearPortalBall()
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances = {character, currentGun}
+        local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+        if result then
+            placePortalAt(result.Position, result.Normal)
+        end
+        return
+    end
+
+    -- Clear any previous ball still flying.
+    clearPortalBall()
+
+    local activeColor = isEvilMortyMode and GOLD or GREEN
+    local activeLight = isEvilMortyMode and LIGHT_GOLD or LIGHT_GREEN
+
+    local ball = Instance.new("Part")
+    ball.Name = "PortalBall"
+    ball.Shape = Enum.PartType.Ball
+    ball.Size = Vector3.new(0.8, 0.8, 0.8)
+    ball.Color = activeColor
+    ball.Material = Enum.Material.Neon
+    ball.CanCollide = false
+    ball.CanTouch = true
+    ball.CanQuery = false
+    ball.CastShadow = false
+    ball.Anchored = true
+    ball.Parent = workspace
+
+    -- Spawn the ball from the gun's muzzle (or the camera, if toggled off).
+    local muzzlePart
+    if shootFromGun and currentGun and currentGun:FindFirstChild("GoldEmitter") then
+        muzzlePart = currentGun.GoldEmitter
+    elseif shootFromGun and currentGun and currentGun:FindFirstChild("FrontPanel") then
+        muzzlePart = currentGun.FrontPanel
+    end
+    if muzzlePart and muzzlePart:IsA("BasePart") then
+        ball.CFrame = CFrame.new(muzzlePart.CFrame.Position + direction * 0.5)
+    else
+        ball.CFrame = CFrame.new(camera.CFrame.Position + camera.CFrame.LookVector * 2)
+    end
+
+    local light = Instance.new("PointLight")
+    light.Color = activeLight
+    light.Brightness = 6
+    light.Range = 14
+    light.Parent = ball
+
+    local attachment = Instance.new("Attachment")
+    attachment.Parent = ball
+
+    local trail = Instance.new("Trail")
+    trail.Color = ColorSequence.new(activeColor)
+    trail.Lifetime = 0.35
+    trail.WidthScale = NumberSequence.new(0.5)
+    trail.FaceCamera = true
+    trail.Parent = ball
+
+    portalBall = ball
+
+    local speed = 260
+    local travelled = 0
+    local maxDistance = 1000
+    local lastPosition = ball.Position
+
+    portalBallConnection = RunService.Heartbeat:Connect(function(dt)
+        if not ball.Parent then
+            portalBallConnection:Disconnect()
+            portalBallConnection = nil
+            return
+        end
+
+        local step = direction * speed * dt
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances = {character, currentGun, ball}
+
+        local result = workspace:Raycast(lastPosition, step, params)
+        if result then
+            pcall(function()
+                placePortalAt(result.Position, result.Normal)
+            end)
+            clearPortalBall()
+            return
+        end
+
+        ball.Position = lastPosition + step
+        lastPosition = ball.Position
+        travelled = travelled + speed * dt
+
+        if travelled > maxDistance then
+            clearPortalBall()
+        end
+    end)
+end
+
+-- Measures how much clear wall surface extends from a point in a direction
+-- (parallel to the wall face), stopping at an edge/corner or a gap.
+local function measureWallSpace(position, direction, params)
+    local result = workspace:Raycast(position, direction * 60, params)
+    if result then
+        return (result.Position - position).Magnitude
+    end
+    return 60
+end
+
+-- Returns true only if the wall surface around the given point is at least as
+-- large as the portal (7 wide x 10 tall), so the portal never hangs off a
+-- too-small wall.
+local function wallHasSpace(hitPosition, normal)
+    local right = Vector3.new(normal.Z, 0, -normal.X)
+    if right.Magnitude < 0.001 then
+        right = Vector3.new(0, 0, -1)
+    end
+    right = right.Unit
+    local up = Vector3.new(0, 1, 0)
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {}
+
+    local halfW = 3.5
+    local halfH = 5
+    local rightSpace = measureWallSpace(hitPosition, right, params)
+    local leftSpace = measureWallSpace(hitPosition, -right, params)
+    local upSpace = measureWallSpace(hitPosition, up, params)
+    local downSpace = measureWallSpace(hitPosition, -up, params)
+
+    return rightSpace >= halfW
+        and leftSpace >= halfW
+        and upSpace >= halfH
+        and downSpace >= halfH
+end
+
+-- Searches around a target position for the nearest vertical wall surface,
+-- preferring walls in the given look direction and at the target's height.
+-- Returns a placement position + facing normal if one is found within range,
+-- otherwise nil (caller falls back to an in-air placement).
+local function findNearestWallPlacement(target, exclude, lookDirection)
+    if not placeOnWall then
+        return nil
+    end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = exclude or {}
+
+    local horiz
+    if lookDirection then
+        local h = Vector3.new(lookDirection.X, 0, lookDirection.Z)
+        if h.Magnitude > 0.001 then
+            horiz = h.Unit
+        end
+    end
+
+    local best
+    local bestScore = math.huge
+
+    -- Cast rays at several heights so walls are found near the player's Y.
+    local heightOffsets = {0, -2, -4, 2}
+
+    local function tryDirection(dir)
+        for _, yOffset in ipairs(heightOffsets) do
+            local origin = target + Vector3.new(0, yOffset, 0)
+            local result = workspace:Raycast(origin, dir * WALL_SEARCH_RADIUS, params)
+            if result and math.abs(result.Normal.Y) < 0.75 then
+                if wallHasSpace(result.Position, result.Normal) then
+                    local dist = (result.Position - target).Magnitude
+                    local penalty = 0
+                    if horiz then
+                        penalty = (1 - horiz:Dot(dir)) * 4
+                    end
+                    local score = dist + penalty
+                    if score < bestScore then
+                        bestScore = score
+                        best = result
+                    end
+                end
+            end
+        end
+    end
+
+    if horiz then
+        local base = math.atan2(horiz.X, horiz.Z)
+        for i = 0, 4 do
+            local spread = math.rad(i * 20)
+            tryDirection(Vector3.new(math.sin(base + spread), 0, math.cos(base + spread)))
+            if spread > 0 then
+                tryDirection(Vector3.new(math.sin(base - spread), 0, math.cos(base - spread)))
+            end
+        end
+        -- Full-circle fallback (still preferred less because of the penalty).
+        for i = 0, 11 do
+            local ang = math.rad(i * 30)
+            tryDirection(Vector3.new(math.sin(ang), 0, math.cos(ang)))
+        end
+    else
+        for i = 0, 23 do
+            local ang = math.rad(i * 15)
+            tryDirection(Vector3.new(math.sin(ang), 0, math.cos(ang)))
+        end
+    end
+
+    if best then
+        return best.Position + best.Normal * 0.25, best.Normal
+    end
+
+    -- Fallback: locate the nearest solid part within range with a region
+    -- query, then raycast toward it to grab its surface normal.
+    local parts = workspace:GetPartBoundsInBox(CFrame.new(target), Vector3.new(WALL_SEARCH_RADIUS * 2, 20, WALL_SEARCH_RADIUS * 2), params)
+    local nearestPart
+    local nearestDist = math.huge
+    for _, part in ipairs(parts) do
+        if part.CanCollide then
+            local dist = (part.Position - target).Magnitude
+            if dist < nearestDist then
+                nearestDist = dist
+                nearestPart = part
+            end
+        end
+    end
+    if nearestPart and nearestDist <= WALL_SEARCH_RADIUS then
+        local toPart = nearestPart.Position - target
+        if toPart.Magnitude > 0.001 then
+            local result = workspace:Raycast(target, toPart * 1.5, params)
+            if result and wallHasSpace(result.Position, result.Normal) then
+                return result.Position + result.Normal * 0.25, result.Normal
+            end
+        end
+    end
+
+    return nil
+end
+
+-- Snaps a portal position to the nearest adequately-sized wall, falling back
+-- to the original in-air placement when no suitable wall is found.
+snapToWall = function(position, facing, upVector, exclude, lookDirection)
+    local wallPos, wallFacing = findNearestWallPlacement(position, exclude, lookDirection)
+    if wallPos then
+        return wallPos, wallFacing, Vector3.new(0, 1, 0)
+    end
+    return position, facing, upVector
 end
 
 --============================================================
@@ -687,7 +1009,7 @@ local function createGUI(startHUD, stopHUD)
     local modes = {}
     local function makeModeButton(text, x)
         local button = Instance.new("TextButton")
-        button.Size = UDim2.fromOffset(110, 32)
+        button.Size = UDim2.fromOffset(82, 32)
         button.Position = UDim2.fromOffset(x, 75)
         button.BackgroundColor3 = Color3.fromRGB(29, 27, 24)
         button.Text = text
@@ -704,8 +1026,9 @@ local function createGUI(startHUD, stopHUD)
     end
 
     modes.Coordinates = makeModeButton("COORDS", 20)
-    modes.Player = makeModeButton("PLAYER", 142)
-    modes.Saved = makeModeButton("SAVED", 264)
+    modes.Player = makeModeButton("PLAYER", 106)
+    modes.Saved = makeModeButton("SAVED", 192)
+    modes.Settings = makeModeButton("SETTINGS", 278)
 
     -- FIELD CREATOR
     local function makeField(name, placeholder, position, size)
@@ -1123,12 +1446,147 @@ local function createGUI(startHUD, stopHUD)
         currentGun = createPortalGun(startHUD, stopHUD)
     end)
 
+    -- SETTINGS PANEL
+    local settingsPanel = Instance.new("Frame")
+    settingsPanel.Name = "SettingsPanel"
+    settingsPanel.Size = UDim2.fromOffset(330, 220)
+    settingsPanel.Position = UDim2.fromOffset(30, 115)
+    settingsPanel.BackgroundColor3 = Color3.fromRGB(23, 21, 18)
+    settingsPanel.Visible = false
+    settingsPanel.Parent = main
+
+    local settingsCorner = Instance.new("UICorner")
+    settingsCorner.CornerRadius = UDim.new(0, 10)
+    settingsCorner.Parent = settingsPanel
+
+    -- SHOOT FROM GUN TOGGLE
+    local shootGunButton = Instance.new("TextButton")
+    shootGunButton.Name = "ShootFromGunToggle"
+    shootGunButton.Size = UDim2.new(1, -20, 0, 44)
+    shootGunButton.Position = UDim2.fromOffset(10, 12)
+    shootGunButton.BackgroundColor3 = Color3.fromRGB(40, 38, 33)
+    shootGunButton.TextColor3 = Color3.fromRGB(255, 245, 220)
+    shootGunButton.Font = Enum.Font.GothamBold
+    shootGunButton.TextSize = 13
+    shootGunButton.AutoButtonColor = false
+    shootGunButton.Text = "SHOOT FROM: GUN"
+    shootGunButton.Parent = settingsPanel
+
+    local shootGunCorner = Instance.new("UICorner")
+    shootGunCorner.CornerRadius = UDim.new(0, 8)
+    shootGunCorner.Parent = shootGunButton
+
+    local shootGunStroke = Instance.new("UIStroke")
+    shootGunStroke.Color = GOLD
+    shootGunStroke.Thickness = 1.5
+    shootGunStroke.Parent = shootGunButton
+
+    local function refreshShootGunButton()
+        if shootFromGun then
+            shootGunButton.Text = "SHOOT FROM: GUN"
+            shootGunStroke.Color = GOLD
+        else
+            shootGunButton.Text = "SHOOT FROM: CAMERA"
+            shootGunStroke.Color = GREEN
+        end
+    end
+    refreshShootGunButton()
+
+    shootGunButton.MouseButton1Click:Connect(function()
+        shootFromGun = not shootFromGun
+        refreshShootGunButton()
+        status.Text = shootFromGun and "Shooting from the gun." or "Shooting from the camera."
+        status.TextColor3 = isEvilMortyMode and GOLD or GREEN
+    end)
+
+    -- SHOOT BALL TOGGLE
+    local shootBallButton = Instance.new("TextButton")
+    shootBallButton.Name = "ShootBallToggle"
+    shootBallButton.Size = UDim2.new(1, -20, 0, 44)
+    shootBallButton.Position = UDim2.fromOffset(10, 64)
+    shootBallButton.BackgroundColor3 = Color3.fromRGB(40, 38, 33)
+    shootBallButton.TextColor3 = Color3.fromRGB(255, 245, 220)
+    shootBallButton.Font = Enum.Font.GothamBold
+    shootBallButton.TextSize = 13
+    shootBallButton.AutoButtonColor = false
+    shootBallButton.Text = "SHOOT BALL: ON"
+    shootBallButton.Parent = settingsPanel
+
+    local shootBallCorner = Instance.new("UICorner")
+    shootBallCorner.CornerRadius = UDim.new(0, 8)
+    shootBallCorner.Parent = shootBallButton
+
+    local shootBallStroke = Instance.new("UIStroke")
+    shootBallStroke.Color = GOLD
+    shootBallStroke.Thickness = 1.5
+    shootBallStroke.Parent = shootBallButton
+
+    local function refreshShootBallButton()
+        if shootBall then
+            shootBallButton.Text = "SHOOT BALL: ON"
+            shootBallStroke.Color = GOLD
+        else
+            shootBallButton.Text = "SHOOT BALL: OFF (PLACE ON CURSOR)"
+            shootBallStroke.Color = GREEN
+        end
+    end
+    refreshShootBallButton()
+
+    shootBallButton.MouseButton1Click:Connect(function()
+        shootBall = not shootBall
+        clearPortalBall()
+        refreshShootBallButton()
+        status.Text = shootBall and "Shooting a portal ball." or "Placing portal directly on cursor."
+        status.TextColor3 = isEvilMortyMode and GOLD or GREEN
+    end)
+
+    -- PLACE ON WALL TOGGLE
+    local placeWallButton = Instance.new("TextButton")
+    placeWallButton.Name = "PlaceOnWallToggle"
+    placeWallButton.Size = UDim2.new(1, -20, 0, 44)
+    placeWallButton.Position = UDim2.fromOffset(10, 116)
+    placeWallButton.BackgroundColor3 = Color3.fromRGB(40, 38, 33)
+    placeWallButton.TextColor3 = Color3.fromRGB(255, 245, 220)
+    placeWallButton.Font = Enum.Font.GothamBold
+    placeWallButton.TextSize = 13
+    placeWallButton.AutoButtonColor = false
+    placeWallButton.Text = "PLACE ON WALL: ON"
+    placeWallButton.Parent = settingsPanel
+
+    local placeWallCorner = Instance.new("UICorner")
+    placeWallCorner.CornerRadius = UDim.new(0, 8)
+    placeWallCorner.Parent = placeWallButton
+
+    local placeWallStroke = Instance.new("UIStroke")
+    placeWallStroke.Color = GOLD
+    placeWallStroke.Thickness = 1.5
+    placeWallStroke.Parent = placeWallButton
+
+    local function refreshPlaceWallButton()
+        if placeOnWall then
+            placeWallButton.Text = "PLACE ON WALL: ON"
+            placeWallStroke.Color = GOLD
+        else
+            placeWallButton.Text = "PLACE ON WALL: OFF"
+            placeWallStroke.Color = GREEN
+        end
+    end
+    refreshPlaceWallButton()
+
+    placeWallButton.MouseButton1Click:Connect(function()
+        placeOnWall = not placeOnWall
+        refreshPlaceWallButton()
+        status.Text = placeOnWall and "Portals will snap to the nearest wall." or "Portals will float in the air."
+        status.TextColor3 = isEvilMortyMode and GOLD or GREEN
+    end)
+
     -- MODE SWITCHING
     local function updateMode(mode)
         teleportMode = mode
         local coordinates = mode == "Coordinates"
         local playerMode = mode == "Player"
         local savedMode = mode == "Saved"
+        local settingsMode = mode == "Settings"
 
         xBox.Visible = coordinates
         yBox.Visible = coordinates
@@ -1142,9 +1600,12 @@ local function createGUI(startHUD, stopHUD)
         saveLocationButton.Visible = savedMode
         savedList.Visible = savedMode
 
+        settingsPanel.Visible = settingsMode
+
         modes.Coordinates.BackgroundColor3 = coordinates and Color3.fromRGB(150, 120, 25) or Color3.fromRGB(29, 27, 24)
         modes.Player.BackgroundColor3 = playerMode and Color3.fromRGB(150, 120, 25) or Color3.fromRGB(29, 27, 24)
         modes.Saved.BackgroundColor3 = savedMode and Color3.fromRGB(150, 120, 25) or Color3.fromRGB(29, 27, 24)
+        modes.Settings.BackgroundColor3 = settingsMode and Color3.fromRGB(150, 120, 25) or Color3.fromRGB(29, 27, 24)
 
         if coordinates then
             subtitle.Text = "Enter destination coordinates"
@@ -1154,6 +1615,9 @@ local function createGUI(startHUD, stopHUD)
             status.Text = "Select a player below"
             refreshPlayerList()
             startPlayerListUpdates()
+        elseif settingsMode then
+            subtitle.Text = "Settings"
+            status.Text = "Adjust how the portal gun behaves."
         else
             subtitle.Text = "Save or select a saved location"
             status.Text = "Type a name + save, or click a saved spot below"
@@ -1173,6 +1637,9 @@ local function createGUI(startHUD, stopHUD)
     end)
     modes.Saved.MouseButton1Click:Connect(function()
         updateMode("Saved")
+    end)
+    modes.Settings.MouseButton1Click:Connect(function()
+        updateMode("Settings")
     end)
 
     -- DEPLOY ACTION
@@ -1198,6 +1665,14 @@ local function createGUI(startHUD, stopHUD)
 
             local target = Vector3.new(x, y, z) + Vector3.new(0, 4, 0)
             local destinationFacing = Vector3.new(0, 0, -1)
+
+            -- Prefer placing the portal on the nearest wall, else float in air.
+            local wallPos, wallFacing = findNearestWallPlacement(target, {character, currentGun}, root.CFrame.LookVector)
+            if wallPos then
+                target = wallPos
+                destinationFacing = wallFacing
+            end
+
             local entrancePosition = root.Position + root.CFrame.LookVector * PORTAL_DISTANCE
             local entranceFacing = -root.CFrame.LookVector
 
@@ -1220,6 +1695,8 @@ local function createGUI(startHUD, stopHUD)
             destroyPortal(returnPortal)
 
             currentPortal = createPortal(target, destinationFacing, "DESTINATION", entranceCFrame, false)
+            portalPlacementPosition, entrancePortalFacing, entranceUpVector =
+                snapToWall(portalPlacementPosition, entrancePortalFacing, entranceUpVector, {character, currentGun}, root.CFrame.LookVector)
             returnPortal = createPortal(portalPlacementPosition, entrancePortalFacing, "GO TO PORTAL", destinationCFrame, true, entranceUpVector)
 
             status.Text = string.format("Portal → %.1f, %.1f, %.1f", x, y, z)
@@ -1281,6 +1758,13 @@ local function createGUI(startHUD, stopHUD)
             local destinationPosition = targetRoot.Position
             local destinationFacing = targetRoot.CFrame.LookVector
 
+            -- Prefer placing the portal on the nearest wall, else float in air.
+            local wallPos, wallFacing = findNearestWallPlacement(destinationPosition, {character, currentGun, target.Character}, root.CFrame.LookVector)
+            if wallPos then
+                destinationPosition = wallPos
+                destinationFacing = wallFacing
+            end
+
             local destinationCFrame = CFrame.lookAt(
                 destinationPosition + destinationFacing * 3,
                 destinationPosition + destinationFacing * 4
@@ -1295,6 +1779,8 @@ local function createGUI(startHUD, stopHUD)
             destroyPortal(returnPortal)
 
             currentPortal = createPortal(destinationPosition, destinationFacing, "DESTINATION → " .. target.Name, entranceCFrame, false)
+            portalPlacementPosition, entrancePortalFacing, entranceUpVector =
+                snapToWall(portalPlacementPosition, entrancePortalFacing, entranceUpVector, {character, currentGun, target.Character}, root.CFrame.LookVector)
             returnPortal = createPortal(portalPlacementPosition, entrancePortalFacing, "GO TO " .. target.Name, destinationCFrame, true, entranceUpVector)
 
             status.Text = "Portal → " .. target.Name
@@ -1325,6 +1811,14 @@ local function createGUI(startHUD, stopHUD)
 
             local target = targetEntry.position + Vector3.new(0, 4, 0)
             local destinationFacing = Vector3.new(0, 0, -1)
+
+            -- Prefer placing the portal on the nearest wall, else float in air.
+            local wallPos, wallFacing = findNearestWallPlacement(target, {character, currentGun}, root.CFrame.LookVector)
+            if wallPos then
+                target = wallPos
+                destinationFacing = wallFacing
+            end
+
             local entrancePosition = root.Position + root.CFrame.LookVector * PORTAL_DISTANCE
             local entranceFacing = -root.CFrame.LookVector
 
@@ -1347,6 +1841,8 @@ local function createGUI(startHUD, stopHUD)
             destroyPortal(returnPortal)
 
             currentPortal = createPortal(target, destinationFacing, "DESTINATION → " .. targetEntry.name, entranceCFrame, false)
+            portalPlacementPosition, entrancePortalFacing, entranceUpVector =
+                snapToWall(portalPlacementPosition, entrancePortalFacing, entranceUpVector, {character, currentGun}, root.CFrame.LookVector)
             returnPortal = createPortal(portalPlacementPosition, entrancePortalFacing, "GO TO " .. targetEntry.name, destinationCFrame, true, entranceUpVector)
 
             status.Text = "Portal → " .. targetEntry.name
