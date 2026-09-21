@@ -41,6 +41,12 @@ local teleportMode = "Coordinates"
 local shootFromGun = true
 local shootBall = true
 local placeOnWall = true
+local manualPlacement = false
+local manualSlots = {
+    {model = nil, setTarget = nil, part = nil},
+    {model = nil, setTarget = nil, part = nil},
+}
+local manualNextSlot = 1
 local currentGun
 local mainGui
 local menu
@@ -117,10 +123,15 @@ local function persistSavedLocations()
         end
         local plain = {}
         for _, entry in ipairs(savedLocations) do
-            table.insert(plain, {
+            local e = {
                 name = entry.name,
                 position = {x = entry.position.X, y = entry.position.Y, z = entry.position.Z}
-            })
+            }
+            if entry.facing then
+                e.facing = {x = entry.facing.X, y = entry.facing.Y, z = entry.facing.Z}
+                e.isPortal = true
+            end
+            table.insert(plain, e)
         end
         writefile(SAVED_LOCATIONS_FILE, HttpService:JSONEncode(plain))
     end)
@@ -140,10 +151,15 @@ local function loadSavedLocations()
     if ok and decoded then
         for _, entry in ipairs(decoded) do
             if type(entry) == "table" and entry.name and entry.position then
-                table.insert(savedLocations, {
+                local e = {
                     name = entry.name,
                     position = Vector3.new(entry.position.x, entry.position.y, entry.position.z)
-                })
+                }
+                if entry.facing then
+                    e.facing = Vector3.new(entry.facing.x, entry.facing.y, entry.facing.z)
+                    e.isPortal = true
+                end
+                table.insert(savedLocations, e)
             end
         end
     end
@@ -216,15 +232,15 @@ end
 -- PORTAL TELEPORT / CAMERA
 --============================================================
 local cameraSnapId = "PortalCameraSnap"
-local function teleportPlayerTo(targetCFrame)
+local function teleportPlayerTo(targetCFrame, exitVelocity)
     local character = getCharacter()
     local root = getRoot(character)
     if not root or not targetCFrame then
         return
     end
     root.CFrame = targetCFrame
-    root.AssemblyLinearVelocity = Vector3.zero
     root.AssemblyAngularVelocity = Vector3.zero
+    root.AssemblyLinearVelocity = exitVelocity or Vector3.zero
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if humanoid then
         humanoid.AutoRotate = false
@@ -288,15 +304,32 @@ local function removeAllPortals()
     destroyPortal(returnPortal)
     currentPortal = nil
     returnPortal = nil
+    for _, slot in ipairs(manualSlots) do
+        if slot.model then
+            slot.model:Destroy()
+        end
+        slot.model = nil
+        slot.setTarget = nil
+        slot.part = nil
+    end
+    manualNextSlot = 1
     portalTeleportLocked = false
 end
 
 --============================================================
 -- PORTAL CREATOR (DYNAMIC THEME)
 --============================================================
+local function getPortalPart(portalModel)
+    if not portalModel then
+        return nil
+    end
+    return portalModel:FindFirstChild("RETURN") or portalModel:FindFirstChild("DESTINATION")
+end
+
 local function createPortal(position, facing, labelText, targetCFrame, isReturn, upVector)
     local activeColor = isEvilMortyMode and GOLD or GREEN
     local activeLight = isEvilMortyMode and LIGHT_GOLD or LIGHT_GREEN
+    local linkTarget = targetCFrame
 
     local model = Instance.new("Model")
     model.Name = isReturn and "ReturnPortal" or "DestinationPortal"
@@ -474,14 +507,27 @@ local function createPortal(position, facing, labelText, targetCFrame, isReturn,
         armed = false
         disarmAllPortals()
 
+        -- Preserve momentum: carry the incoming velocity through the portal
+        -- pair by rotating it from the entrance portal's orientation to the
+        -- exit portal's orientation (magnitude is kept, so run/jump/fall speed
+        -- is preserved coming out).
+        local incomingVelocity = root.AssemblyLinearVelocity
+        local exitVelocity = incomingVelocity
+        local exitModel = isReturn and currentPortal or returnPortal
+        local exitPart = exitModel and getPortalPart(exitModel)
+        if portal and exitPart and exitPart:IsA("BasePart") then
+            local rot = exitPart.CFrame.Rotation * portal.CFrame.Rotation:Inverse()
+            exitVelocity = rot * incomingVelocity
+        end
+
         if isReturn then
-            if targetCFrame then
-                teleportPlayerTo(targetCFrame)
+            if linkTarget then
+                teleportPlayerTo(linkTarget, exitVelocity)
             end
-        elseif targetCFrame then
-            root.CFrame = targetCFrame
-            root.AssemblyLinearVelocity = Vector3.zero
+        elseif linkTarget then
+            root.CFrame = linkTarget
             root.AssemblyAngularVelocity = Vector3.zero
+            root.AssemblyLinearVelocity = exitVelocity
             flipPortalFacing(returnPortal)
         end
     end)
@@ -533,7 +579,9 @@ local function createPortal(position, facing, labelText, targetCFrame, isReturn,
         end
     end)
 
-    return model
+    return model, function(newTarget)
+        linkTarget = newTarget
+    end
 end
 
 --============================================================
@@ -596,6 +644,51 @@ local function clearPortalBall()
     end
 end
 
+-- Places a single portal at a spot for manual 2-portal placement. Middle
+-- click alternates between the two slots; once both are placed they link and
+-- stepping through either teleports you to the other.
+local function placeManualPortal(hitPosition, normal)
+    local character = getCharacter()
+    local root = getRoot(character)
+    if not character or not root then
+        return
+    end
+
+    local portalPosition = hitPosition + normal * 0.25
+    local facing = normal
+
+    local slot = manualSlots[manualNextSlot]
+    if slot.model then
+        slot.model:Destroy()
+        slot.model = nil
+        slot.part = nil
+    end
+
+    local label = manualNextSlot == 1 and "PORTAL A" or "PORTAL B"
+    local model, setTarget = createPortal(portalPosition, facing, label, nil, true, Vector3.new(0, 1, 0))
+    slot.model = model
+    slot.setTarget = setTarget
+    slot.part = getPortalPart(model)
+
+    manualNextSlot = (manualNextSlot == 1) and 2 or 1
+
+    -- Link both portals once both are placed.
+    local a = manualSlots[1]
+    local b = manualSlots[2]
+    if a.model and b.model and a.part and b.part and a.setTarget and b.setTarget then
+        local exitA = computeExitCFrame(a.part.CFrame.Position + a.part.CFrame.LookVector * 3, a.part.CFrame.LookVector)
+        local exitB = computeExitCFrame(b.part.CFrame.Position + b.part.CFrame.LookVector * 3, b.part.CFrame.LookVector)
+        a.setTarget(exitB)
+        b.setTarget(exitA)
+    end
+
+    -- Manual portals replace any auto-placed pair.
+    destroyPortal(currentPortal)
+    destroyPortal(returnPortal)
+    currentPortal = nil
+    returnPortal = nil
+end
+
 -- Places the destination portal where the ball hit, plus the return portal
 -- near the player.
 local function placePortalAt(hitPosition, normal)
@@ -654,7 +747,11 @@ local function shootPortalAtCursor()
         params.FilterDescendantsInstances = {character, currentGun}
         local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
         if result then
-            placePortalAt(result.Position, result.Normal)
+            if manualPlacement then
+                placeManualPortal(result.Position, result.Normal)
+            else
+                placePortalAt(result.Position, result.Normal)
+            end
         end
         return
     end
@@ -729,7 +826,11 @@ local function shootPortalAtCursor()
         local result = workspace:Raycast(lastPosition, step, params)
         if result then
             pcall(function()
-                placePortalAt(result.Position, result.Normal)
+                if manualPlacement then
+                    placeManualPortal(result.Position, result.Normal)
+                else
+                    placePortalAt(result.Position, result.Normal)
+                end
             end)
             clearPortalBall()
             return
@@ -818,7 +919,7 @@ local function findNearestWallPlacement(target, exclude, lookDirection)
                     local dist = (result.Position - target).Magnitude
                     local penalty = 0
                     if horiz then
-                        penalty = (1 - horiz:Dot(dir)) * 4
+                        penalty = (1 - horiz:Dot(dir)) * 2
                     end
                     local score = dist + penalty
                     if score < bestScore then
@@ -840,8 +941,8 @@ local function findNearestWallPlacement(target, exclude, lookDirection)
             end
         end
         -- Full-circle fallback (still preferred less because of the penalty).
-        for i = 0, 11 do
-            local ang = math.rad(i * 30)
+        for i = 0, 23 do
+            local ang = math.rad(i * 15)
             tryDirection(Vector3.new(math.sin(ang), 0, math.cos(ang)))
         end
     else
@@ -995,6 +1096,70 @@ local function createGUI(startHUD, stopHUD)
         main.Visible = false
     end)
 
+    -- Minimize button (collapses the menu to just the title bar)
+    local minimize = Instance.new("TextButton")
+    minimize.Size = UDim2.fromOffset(32, 32)
+    minimize.Position = UDim2.new(1, -80, 0, 12)
+    minimize.BackgroundTransparency = 1
+    minimize.Text = "−"
+    minimize.TextColor3 = Color3.fromRGB(180, 175, 160)
+    minimize.Font = Enum.Font.GothamBold
+    minimize.TextSize = 24
+    minimize.Parent = main
+
+    local FULL_HEIGHT = 505
+    local minimized = false
+    local dragHandle
+    local function setContentVisible(visible)
+        for _, child in ipairs(main:GetChildren()) do
+            if child ~= title and child ~= minimize and child ~= close and child ~= dragHandle then
+                child.Visible = visible
+            end
+        end
+    end
+
+    minimize.MouseButton1Click:Connect(function()
+        minimized = not minimized
+        if minimized then
+            main.Size = UDim2.fromOffset(390, 45)
+            setContentVisible(false)
+            minimize.Text = "▢"
+        else
+            main.Size = UDim2.fromOffset(390, FULL_HEIGHT)
+            setContentVisible(true)
+            minimize.Text = "−"
+        end
+    end)
+
+    -- Transparent drag handle across the title bar so the menu can be moved.
+    dragHandle = Instance.new("TextButton")
+    dragHandle.Size = UDim2.new(1, -90, 0, 45)
+    dragHandle.Position = UDim2.fromOffset(0, 0)
+    dragHandle.BackgroundTransparency = 1
+    dragHandle.Text = ""
+    dragHandle.ZIndex = 5
+    dragHandle.Parent = main
+
+    local dragStart
+    local dragOffset
+    dragHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragStart = input.Position
+            dragOffset = main.AbsolutePosition
+        end
+    end)
+    dragHandle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement and dragStart then
+            local delta = input.Position - dragStart
+            main.Position = UDim2.fromOffset(dragOffset.X + delta.X, dragOffset.Y + delta.Y)
+        end
+    end)
+    dragHandle.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragStart = nil
+        end
+    end)
+
     local subtitle = Instance.new("TextLabel")
     subtitle.Size = UDim2.new(1, -30, 0, 25)
     subtitle.Position = UDim2.fromOffset(15, 48)
@@ -1121,10 +1286,10 @@ local function createGUI(startHUD, stopHUD)
     -- SAVE NAMED LOCATION BUTTON (stores your current position under the typed name)
     local saveLocationButton = Instance.new("TextButton")
     saveLocationButton.Name = "SaveLocationButton"
-    saveLocationButton.Size = UDim2.fromOffset(330, 44)
+    saveLocationButton.Size = UDim2.fromOffset(160, 44)
     saveLocationButton.Position = UDim2.fromOffset(30, 178)
     saveLocationButton.BackgroundColor3 = Color3.fromRGB(80, 70, 25)
-    saveLocationButton.Text = "SAVE CURRENT LOCATION AS..."
+    saveLocationButton.Text = "SAVE LOCATION"
     saveLocationButton.TextColor3 = Color3.fromRGB(255, 245, 220)
     saveLocationButton.Font = Enum.Font.GothamBold
     saveLocationButton.TextSize = 15
@@ -1140,6 +1305,29 @@ local function createGUI(startHUD, stopHUD)
     saveLocationStroke.Color = GOLD
     saveLocationStroke.Thickness = 1
     saveLocationStroke.Parent = saveLocationButton
+
+    -- SAVE LAST PORTAL BUTTON (stores the placed portal's location + orientation)
+    local savePortalButton = Instance.new("TextButton")
+    savePortalButton.Name = "SavePortalButton"
+    savePortalButton.Size = UDim2.fromOffset(160, 44)
+    savePortalButton.Position = UDim2.fromOffset(200, 178)
+    savePortalButton.BackgroundColor3 = Color3.fromRGB(80, 70, 25)
+    savePortalButton.Text = "SAVE PORTAL"
+    savePortalButton.TextColor3 = Color3.fromRGB(255, 245, 220)
+    savePortalButton.Font = Enum.Font.GothamBold
+    savePortalButton.TextSize = 13
+    savePortalButton.AutoButtonColor = false
+    savePortalButton.Visible = false
+    savePortalButton.Parent = main
+
+    local savePortalCorner = Instance.new("UICorner")
+    savePortalCorner.CornerRadius = UDim.new(0, 8)
+    savePortalCorner.Parent = savePortalButton
+
+    local savePortalStroke = Instance.new("UIStroke")
+    savePortalStroke.Color = GOLD
+    savePortalStroke.Thickness = 1
+    savePortalStroke.Parent = savePortalButton
 
     -- SAVED LOCATIONS LIST
     local savedList = Instance.new("ScrollingFrame")
@@ -1189,8 +1377,10 @@ local function createGUI(startHUD, stopHUD)
             button.Parent = row
 
             local pos = entry.position
+            local marker = entry.isPortal and "  ↖ " or "  • "
             button.Text = string.format(
-                "  %s\n  X: %d  Y: %d  Z: %d",
+                "%s%s\n  X: %d  Y: %d  Z: %d",
+                marker,
                 entry.name,
                 math.floor(pos.X + 0.5),
                 math.floor(pos.Y + 0.5),
@@ -1270,6 +1460,47 @@ local function createGUI(startHUD, stopHUD)
         end
 
         status.Text = "Saved location: " .. name
+        status.TextColor3 = isEvilMortyMode and GOLD or GREEN
+        refreshSavedList()
+        persistSavedLocations()
+    end)
+
+    savePortalButton.MouseButton1Click:Connect(function()
+        local name = savedBox.Text:match("^%s*(.-)%s*$")
+        if name == "" then
+            status.Text = "Type a name for this portal first."
+            status.TextColor3 = Color3.fromRGB(255, 100, 100)
+            return
+        end
+
+        local portalPart = currentPortal and getPortalPart(currentPortal)
+        if not portalPart or not portalPart:IsA("BasePart") then
+            status.Text = "No portal placed to save."
+            status.TextColor3 = Color3.fromRGB(255, 100, 100)
+            return
+        end
+
+        local cf = portalPart.CFrame
+        local pos = cf.Position
+        local facing = cf.LookVector
+
+        local existingIndex
+        for index, entry in ipairs(savedLocations) do
+            if string.lower(entry.name) == string.lower(name) then
+                existingIndex = index
+                break
+            end
+        end
+
+        if existingIndex then
+            savedLocations[existingIndex].position = pos
+            savedLocations[existingIndex].facing = facing
+            savedLocations[existingIndex].isPortal = true
+        else
+            table.insert(savedLocations, {name = name, position = pos, facing = facing, isPortal = true})
+        end
+
+        status.Text = "Saved portal: " .. name
         status.TextColor3 = isEvilMortyMode and GOLD or GREEN
         refreshSavedList()
         persistSavedLocations()
@@ -1580,6 +1811,58 @@ local function createGUI(startHUD, stopHUD)
         status.TextColor3 = isEvilMortyMode and GOLD or GREEN
     end)
 
+    -- MANUAL PORTAL PLACEMENT TOGGLE
+    local manualButton = Instance.new("TextButton")
+    manualButton.Name = "ManualPlacementToggle"
+    manualButton.Size = UDim2.new(1, -20, 0, 44)
+    manualButton.Position = UDim2.fromOffset(10, 168)
+    manualButton.BackgroundColor3 = Color3.fromRGB(40, 38, 33)
+    manualButton.TextColor3 = Color3.fromRGB(255, 245, 220)
+    manualButton.Font = Enum.Font.GothamBold
+    manualButton.TextSize = 13
+    manualButton.AutoButtonColor = false
+    manualButton.Text = "MANUAL PORTALS: OFF"
+    manualButton.Parent = settingsPanel
+
+    local manualCorner = Instance.new("UICorner")
+    manualCorner.CornerRadius = UDim.new(0, 8)
+    manualCorner.Parent = manualButton
+
+    local manualStroke = Instance.new("UIStroke")
+    manualStroke.Color = GREEN
+    manualStroke.Thickness = 1.5
+    manualStroke.Parent = manualButton
+
+    local function refreshManualButton()
+        if manualPlacement then
+            manualButton.Text = "MANUAL PORTALS: ON"
+            manualStroke.Color = GOLD
+        else
+            manualButton.Text = "MANUAL PORTALS: OFF"
+            manualStroke.Color = GREEN
+        end
+    end
+    refreshManualButton()
+
+    manualButton.MouseButton1Click:Connect(function()
+        manualPlacement = not manualPlacement
+        if manualPlacement then
+            removeAllPortals()
+            for _, slot in ipairs(manualSlots) do
+                if slot.model then
+                    slot.model:Destroy()
+                end
+                slot.model = nil
+                slot.setTarget = nil
+                slot.part = nil
+            end
+            manualNextSlot = 1
+        end
+        refreshManualButton()
+        status.Text = manualPlacement and "Place 2 portals with middle click (A then B)." or "Manual portal placement off."
+        status.TextColor3 = isEvilMortyMode and GOLD or GREEN
+    end)
+
     -- MODE SWITCHING
     local function updateMode(mode)
         teleportMode = mode
@@ -1598,6 +1881,7 @@ local function createGUI(startHUD, stopHUD)
 
         savedBox.Visible = savedMode
         saveLocationButton.Visible = savedMode
+        savePortalButton.Visible = savedMode
         savedList.Visible = savedMode
 
         settingsPanel.Visible = settingsMode
@@ -1809,14 +2093,22 @@ local function createGUI(startHUD, stopHUD)
                 return
             end
 
-            local target = targetEntry.position + Vector3.new(0, 4, 0)
-            local destinationFacing = Vector3.new(0, 0, -1)
+            local target
+            local destinationFacing
+            if targetEntry.isPortal then
+                -- Saved portal: place exactly where it was saved (position + orientation).
+                target = targetEntry.position
+                destinationFacing = targetEntry.facing
+            else
+                target = targetEntry.position + Vector3.new(0, 4, 0)
+                destinationFacing = Vector3.new(0, 0, -1)
 
-            -- Prefer placing the portal on the nearest wall, else float in air.
-            local wallPos, wallFacing = findNearestWallPlacement(target, {character, currentGun}, root.CFrame.LookVector)
-            if wallPos then
-                target = wallPos
-                destinationFacing = wallFacing
+                -- Prefer placing the portal on the nearest wall, else float in air.
+                local wallPos, wallFacing = findNearestWallPlacement(target, {character, currentGun}, root.CFrame.LookVector)
+                if wallPos then
+                    target = wallPos
+                    destinationFacing = wallFacing
+                end
             end
 
             local entrancePosition = root.Position + root.CFrame.LookVector * PORTAL_DISTANCE
